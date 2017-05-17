@@ -42,11 +42,11 @@ fdlm_factor = function(Y, sigma_et, Wt,  Fmat = NULL, YF = NULL, Gt = NULL, kfas
   if(useFastImpute){ # Fast imputation case: project Y onto F, then sample (requires no missing data in this case!)
     if(is.null(YF)) stop('YF must be specified for fastImpute factor sampler')
     K = ncol(YF) # Store locally
-    kfas_model = update.kfas_model(Y.dlm = YF, Zt = array(diag(K), c(K,K,1)), sigma_et = sigma_et, Gt = Gt, Wt = Wt, W0 = NULL, kfas_model = kfas_model)
+    kfas_model = update_kfas_model(Y.dlm = YF, Zt = array(diag(K), c(K,K,1)), sigma_et = sigma_et, Gt = Gt, Wt = Wt, W0 = NULL, kfas_model = kfas_model)
   } else {# Standard DLM case: Y is the response, Fmat is the observation matrix
     if(is.null(Fmat)) stop('Fmat must be specified for non-fastImpute factor sampler')
     K = ncol(Fmat) # Store locally
-    kfas_model = update.kfas_model(Y.dlm = Y, Zt = array(Fmat, c(m,K,1)), sigma_et = sigma_et, Gt = Gt, Wt = Wt, W0 = NULL, kfas_model = kfas_model)
+    kfas_model = update_kfas_model(Y.dlm = Y, Zt = array(Fmat, c(m,K,1)), sigma_et = sigma_et, Gt = Gt, Wt = Wt, W0 = NULL, kfas_model = kfas_model)
   }
 
   # Run the sampler

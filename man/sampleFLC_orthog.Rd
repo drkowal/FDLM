@@ -2,23 +2,30 @@
 % Please edit documentation in R/RcppExports.R
 \name{sampleFLC_orthog}
 \alias{sampleFLC_orthog}
-\title{Sample the Factor Loading Curves, For the special case in which BtB = diag(J)}
+\title{Factor Loading Curve Sampling Algorithm}
 \usage{
 sampleFLC_orthog(BtY, Beta, Psi, Omega, lambda, sigmat2)
 }
 \arguments{
-\item{BtY}{(J x T) matrix B.t()*Y for basis matrix B}
+\item{BtY}{\code{J x T} matrix \code{B.t()*Y} for basis matrix B}
 
-\item{Beta}{(T x K) matrix of factors}
+\item{Beta}{\code{T x K} matrix of factors}
 
-\item{Psi}{(J x K) matrix of previous factor loading curve coefficients}
+\item{Psi}{\code{J x K} matrix of previous factor loading curve coefficients}
 
-\item{Omega}{(J x J) prior precision/penalty matrix}
+\item{Omega}{\code{J x J} prior precision/penalty matrix}
 
-\item{sigmat2}{T-dim vector of time-dependent observation error variances}
+\item{sigmat2}{\code{T}-dimensional vector of time-dependent observation error variances}
 
-\item{lamda}{K-dimensional vector of prior precisions}
+\item{lamda}{\code{K}-dimensional vector of prior precisions}
+}
+\value{
+Psi \code{J x K} matrix of (orthogonal) factor loading curve coefficients
 }
 \description{
-Sample the Factor Loading Curves, For the special case in which BtB = diag(J)
+Sample the factor loading curve basis coefficients subject to
+an orthonormality constraint for the special case in which \code{BtB = diag(J)}.
+}
+\note{
+This function uses \code{Rcpp} for computational efficiency.
 }

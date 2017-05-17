@@ -73,9 +73,9 @@ fdlm = function(Y, tau, K = NULL, nsims = 10000, burnin = 1000, mcmc_params = li
     YF = crossprod(BtY, Psi)
 
     # Initialize the SSModel:
-    kfas_model = update.kfas_model(Y.dlm = YF, Zt = diag(K))
+    kfas_model = update_kfas_model(Y.dlm = YF, Zt = diag(K))
 
-  } else kfas_model = update.kfas_model(Y.dlm = Y, Zt = Fmat) # Full DLM in non-fast case
+  } else kfas_model = update_kfas_model(Y.dlm = Y, Zt = Fmat) # Full DLM in non-fast case
 
   # Initialize the factor evolution error variance:
   Wt = array(var(diff(Beta)), c(K,K,T))

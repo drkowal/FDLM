@@ -2,25 +2,32 @@
 % Please edit documentation in R/RcppExports.R
 \name{sampleFLC}
 \alias{sampleFLC}
-\title{Sample the Factor Loading Curves}
+\title{Factor Loading Curve Sampling Algorithm}
 \usage{
 sampleFLC(BtY, Beta, Psi, BtB, Omega, lambda, sigmat2)
 }
 \arguments{
-\item{BtY}{(J x T) matrix B.t()*Y for basis matrix B}
+\item{BtY}{\code{J x T} matrix \code{B.t()*Y} for basis matrix B}
 
-\item{Beta}{(T x K) matrix of factors}
+\item{Beta}{\code{T x K} matrix of factors}
 
-\item{Psi}{(J x K) matrix of previous factor loading curve coefficients}
+\item{Psi}{\code{J x K} matrix of previous factor loading curve coefficients}
 
-\item{BtB}{(J x J) matrix of B.t()*B}
+\item{BtB}{\code{J x J} matrix of \code{B.t()*B}}
 
-\item{Omega}{(J x J) prior precision/penalty matrix}
+\item{Omega}{\code{J x J} prior precision/penalty matrix}
 
-\item{sigmat2}{T-dimensional vector of time-dependent observation error variances}
+\item{sigmat2}{\code{T}-dimensional vector of time-dependent observation error variances}
 
-\item{lamda}{K-dimensional vector of prior precisions}
+\item{lamda}{\code{K}-dimensional vector of prior precisions}
+}
+\value{
+Psi \code{J x K} matrix of (orthogonal) factor loading curve coefficients
 }
 \description{
-Sample the Factor Loading Curves
+Sample the factor loading curve basis coefficients subject to
+an orthonormality constraint.
+}
+\note{
+This function uses \code{Rcpp} for computational efficiency.
 }

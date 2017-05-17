@@ -64,7 +64,7 @@ fdlm_init = function(Y, tau, K){
 # kfas_model: SSModel object from KFAS package; if NULL, construct model (might be slower!)
 #####################################################################################################
 #' @import KFAS
-update.kfas_model = function(Y.dlm, Zt, sigma_et = NULL, Gt = NULL, Wt = NULL, W0 = NULL, kfas_model = NULL){
+update_kfas_model = function(Y.dlm, Zt, sigma_et = NULL, Gt = NULL, Wt = NULL, W0 = NULL, kfas_model = NULL){
 
   if (!requireNamespace("KFAS", quietly = TRUE)) {
     stop("KFAS needed for this function to work. Please install it.",

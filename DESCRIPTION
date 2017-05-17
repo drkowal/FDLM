@@ -14,6 +14,8 @@ Description: This package provides an implementation of A Bayesian Multivariate
     (2) the state variables (factors) using the package KFAS, and (3) the observation and
     evolution error variances. Modifications of steps (2) and (3) provide a broadly applicable  
     framework for modeling a time series of functional data. 
+URL: http://github.com/drkowal/FDLM
+BugReports: http://github.com/drkowal/FDLM/issues
 License: GPL-3
 Encoding: UTF-8
 LazyData: false
