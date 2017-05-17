@@ -1,0 +1,22 @@
+Package: FDLM
+Type: Package
+Title: A Bayesian Multivariate Functional Dynamic Linear Model
+Version: 0.1.0
+Author: Daniel R. Kowal <daniel.r.kowal@gmail.com>
+Maintainer: Daniel R. Kowal <daniel.r.kowal@gmail.com>
+Description: This package provides an implementation of A Bayesian Multivariate
+    Functional Dynamic Linear Model (Kowal, Matteson, Ruppert, JASA, 2017) for modeling 
+    a (multivariate) time series of functional data. The model may be described as a 
+    dynamic functional factor model: the factor loadings are modeled as smooth curves, 
+    while the factors are modeled dynamically as latent state variables in a state space model 
+    (or dynamic linear model). The package provides an efficient Gibbs sampling algorithm,
+    as well as functions for component block sampling steps: (1) the factor loading curves, 
+    (2) the state variables (factors) using the package KFAS, and (3) the observation and
+    evolution error variances. Modifications of steps (2) and (3) provide a broadly applicable  
+    framework for modeling a time series of functional data. 
+License: GPL-3
+Encoding: UTF-8
+LazyData: false
+RoxygenNote: 6.0.1
+Imports: Rcpp (>= 0.12.10), RcppArmadillo, KFAS, MCMCpack, truncdist, coda
+LinkingTo: Rcpp, RcppArmadillo
