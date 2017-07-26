@@ -99,7 +99,7 @@ sample_Wt = function(resBeta, Rinv = diag(1, K), rh0 = K, useDiagonal=FALSE){
 #' @param Omega \code{J x J} penalty matrix; if NULL, assume it is diag(0, 0, 1,...,1)
 #' @param uniformPrior logical; when TRUE, use a uniform prior on prior standard deviations,
 #' \code{1/sqrt{lambda[k]}}; otherwise use independent Gamma(0.001, 0.001) prior for each \code{lambda[k]}
-#' @param orderLambda logical; when TRUE, enforce the ordering constraint \code{lambda[1] > ... > lambda[K]}
+#' @param orderLambdas logical; when TRUE, enforce the ordering constraint \code{lambda[1] > ... > lambda[K]}
 #' for identifiability
 
 #' @return The \code{K}-dimensional vector of samoothing parameters, \code{lambda}.

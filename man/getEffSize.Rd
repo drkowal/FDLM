@@ -2,7 +2,7 @@
 % Please edit documentation in R/helper_functions.R
 \name{getEffSize}
 \alias{getEffSize}
-\title{Compute the summary statistics for the effective sample size across many posterior samples}
+\title{Summarize of effective sample size}
 \usage{
 getEffSize(postX)
 }
@@ -10,8 +10,19 @@ getEffSize(postX)
 \item{postX}{An array of arbitrary dimension \code{(nsims x ... x ...)}, where \code{nsims} is the number of posterior samples}
 }
 \value{
-Table of summary statistics using the function \code{summary}
+Table of summary statistics using the function \code{summary()}.
 }
 \description{
-Compute the summary statistics for the effective sample size across many posterior samples
+Compute the summary statistics for the effective sample size (ESS) across
+posterior samples for possibly many variables
+}
+\examples{
+# ESS for iid simulations:
+rand_iid = rnorm(n = 10^4)
+getEffSize(rand_iid)
+
+# ESS for several AR(1) simulations with coefficients 0.1, 0.2,...,0.9:
+rand_ar1 = sapply(seq(0.1, 0.9, by = 0.1), function(x) arima.sim(n = 10^4, list(ar = x)))
+getEffSize(rand_ar1)
+
 }

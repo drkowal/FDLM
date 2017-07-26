@@ -114,7 +114,6 @@ update_kfas_model = function(Y.dlm, Zt, sigma_et = NULL, Gt = NULL, Wt = NULL, W
 # sigma_et: T-dimensional vector of observation error SD(s)
 # Bmat: (m x J) matrix of spline basis coefficients
 #####################################################################################################
-#' @export
 fdlm_impute = function(Yna, mu, sigma_et, Bmat){
 
   # These are the missing indicese:
@@ -192,10 +191,19 @@ getSplineInfo = function(tau01, m_avg = NULL, orthonormal = TRUE){
   list(Bmat = Bmat, Omega = Omega, BtB = BtB)
 }
 #####################################################################################################
-# Find (1-alpha)% credible BANDS for a function based on MCMC samples using Crainiceanu et al. (2007)
-# sampFuns: (Nsims x m) matrix of Nsims MCMC samples
-# alpha: confidence level
-#####################################################################################################
+#' Compute Simultaneous Credible Bands
+#'
+#' Compute (1-alpha)% credible BANDS for a function based on MCMC samples using Crainiceanu et al. (2007)
+#'
+#' @param sampFuns \code{Nsims x m} matrix of \code{Nsims} MCMC samples and \code{m} points along the curve
+#' @param alpha confidence level
+#'
+#' @return \code{m x 2} matrix of credible bands; the first column is the lower band, the second is the upper band
+#'
+#' @note The input needs not be curves: the simultaneous credible "bands" may be computed
+#' for vectors. The resulting credible intervals will provide joint coverage at the (1-alpha)%
+#' level across all components of the vector.
+#'
 #' @export
 credBands = function(sampFuns, alpha = .05){
 
@@ -246,13 +254,31 @@ computeTimeRemaining = function(nsi, timer0, nsims, nrep=100){
     }
   }
 }
-#####################################################################################################
-#' Compute the summary statistics for the effective sample size across many posterior samples
+#----------------------------------------------------------------------------
+#' Summarize of effective sample size
+#'
+#' Compute the summary statistics for the effective sample size (ESS) across
+#' posterior samples for possibly many variables
+#'
 #' @param postX An array of arbitrary dimension \code{(nsims x ... x ...)}, where \code{nsims} is the number of posterior samples
-#' @return Table of summary statistics using the function \code{summary}
+#' @return Table of summary statistics using the function \code{summary()}.
+#'
+#' @examples
+#' # ESS for iid simulations:
+#' rand_iid = rnorm(n = 10^4)
+#' getEffSize(rand_iid)
+#'
+#' # ESS for several AR(1) simulations with coefficients 0.1, 0.2,...,0.9:
+#' rand_ar1 = sapply(seq(0.1, 0.9, by = 0.1), function(x) arima.sim(n = 10^4, list(ar = x)))
+#' getEffSize(rand_ar1)
+#'
+#' @import coda
 #' @export
-getEffSize = function(postX) summary(coda::effectiveSize(coda::as.mcmc(array(postX, c(dim(postX)[1], prod(dim(postX)[-1]))))))
-#####################################################################################################
+getEffSize = function(postX) {
+  if(is.null(dim(postX))) return(effectiveSize(postX))
+  summary(effectiveSize(as.mcmc(array(postX, c(dim(postX)[1], prod(dim(postX)[-1]))))))
+}
+#----------------------------------------------------------------------------
 #' Compute the ergodic (running) mean.
 #' @param x vector for which to compute the running mean
 #' @return A vector \code{y} with each element defined by \code{y[i] = mean(x[1:i])}
@@ -267,3 +293,64 @@ getEffSize = function(postX) summary(coda::effectiveSize(coda::as.mcmc(array(pos
 #' abline(h=5)
 #' @export
 ergMean = function(x) {cumsum(x)/(1:length(x))}
+#----------------------------------------------------------------------------
+#' Plot the factors
+#'
+#' Plot posterior mean of the factors together with the simultaneous and pointwise
+#' 95\% credible bands.
+#'
+#' @param post_beta the \code{Nsims x T x K} array of \code{Nsims} draws from the posterior
+#' distribution of the \code{T x K} matrix of factors, \code{beta}
+#' @param dates \code{T x 1} vector of dates or labels corresponding to the time points
+#'
+#' @importFrom grDevices dev.new
+#' @importFrom graphics abline lines  par plot polygon
+#' @import viridis
+#' @import coda
+#' @export
+plot_factors = function(post_beta, dates = NULL){
+  K = dim(post_beta)[3] # Number of factors
+  if(is.null(dates)) dates = seq(0, 1, length.out = dim(post_beta)[2])
+
+  dev.new(); par(mai = c(.8,.9,.4,.4), bg = 'gray90');
+  plot(dates, post_beta[1,,1], ylim = range(post_beta), xlab = 'Dates', ylab = '', main = paste('Dynamic Factors', sep=''), type='n', cex.lab = 2, cex.axis=2,cex.main=2)
+  abline(h = 0, lty=3, lwd=2);
+  for(k in K:1){
+    cb = credBands(as.mcmc(post_beta[,,k])); ci = HPDinterval(as.mcmc(post_beta[,,k]));
+    polygon(c(dates, rev(dates)), c(cb[,2], rev(cb[,1])), col='grey50', border=NA);
+    polygon(c(dates, rev(dates)), c(ci[,2], rev(ci[,1])), col='grey', border=NA);
+    lines(dates,colMeans(post_beta[,,k]), lwd=8, col=viridis(K, end = .8)[k])
+  }
+}
+#----------------------------------------------------------------------------
+#' Plot the factor loading curves
+#'
+#' Plot posterior mean of the factor loading curves together with the simultaneous
+#' and pointwise 95\% credible bands.
+#'
+#' @param post_fk the \code{Nsims x m x K} array of \code{Nsims} draws from the posterior
+#' distribution of the \code{m x K} matrix of FLCs, \code{fk}
+#' @param tau \code{m x 1} vector of observation points
+#'
+#' @importFrom grDevices dev.new
+#' @importFrom graphics abline lines  par plot polygon
+#' @import viridis
+#' @import coda
+#' @export
+plot_flc = function(post_fk, tau = NULL){
+  K = dim(post_fk)[3] # Number of factors
+  if(is.null(tau)) tau = seq(0, 1, length.out = dim(post_fk)[2])
+
+  dev.new(); par(mai = c(.9,.9,.4,.4), bg = 'gray90');
+  plot(tau, post_fk[1,,1], ylim = range(post_fk), xlab = expression(tau), ylab = '', main = 'Factor Loading Curves', type='n', cex.lab = 2, cex.axis=2,cex.main=2)
+  abline(h = 0, lty=3, lwd=2);
+  for(k in K:1){
+    cb = credBands(as.mcmc(post_fk[,,k])); ci = HPDinterval(as.mcmc(post_fk[,,k]));
+    polygon(c(tau, rev(tau)), c(cb[,2], rev(cb[,1])), col='grey50', border=NA);
+    polygon(c(tau, rev(tau)), c(ci[,2], rev(ci[,1])), col='grey', border=NA);
+    lines(tau,colMeans(post_fk[,,k]), lwd=8, col=viridis(K, end = .8)[k])
+  }
+}
+# Just add these for general use:
+#' @importFrom stats quantile rgamma rnorm sd splinefun var
+NULL

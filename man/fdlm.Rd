@@ -5,7 +5,8 @@
 \title{MCMC Sampling Algorithm for the FDLM}
 \usage{
 fdlm(Y, tau, K = NULL, nsims = 10000, burnin = 1000,
-  mcmc_params = list("beta", "fk"), useFastImpute = TRUE)
+  mcmc_params = list("beta", "fk"), useFastImpute = TRUE,
+  includeBasisInnovation = TRUE)
 }
 \arguments{
 \item{Y}{the \code{T x m} data observation matrix, where \code{T} is the number of time points and \code{m} is the number of observation points (\code{NA}s allowed)}
@@ -22,26 +23,45 @@ fdlm(Y, tau, K = NULL, nsims = 10000, burnin = 1000,
 must be one or more of "beta" (factors),  "fk" (FLCs), "sigma_e" (observation error SD), "Wt" (evolution error variance), "Yhat" (fitted values)}
 
 \item{useFastImpute}{logical; when TRUE, use imputation/projection scheme for the dynamic factors; otherwise use full state space model for factors (slower)}
+
+\item{includeBasisInnovation}{logical; when TRUE, include an iid basis coefficient term for residual correlation
+(i.e., the idiosyncratic error term for a factor model on the full basis matrix)}
 }
 \value{
 A named list of the \code{nsims} MCMC samples for the parameters named in \code{mcmc_params}
 }
 \description{
 Runs the MCMC for the (univariate) FDLM under some default conditions:
-1) A random walk model for the dynamic factors;
-2) A full \code{K x K} non-dynamic evolution error variance matrix;
-3) A non-dynamic scalar multiple of the identity for the observation error variance.
+\enumerate{
+\item A random walk model for the dynamic factors;
+\item A full \code{K x K} non-dynamic evolution error variance matrix;
+\item A non-dynamic scalar multiple of the identity for the observation error variance.
+}
 }
 \note{
 If \code{Tm} is large, then storing all posterior samples for \code{Yhat}, which is \code{nsims x T x m},  may be inefficient
 }
 \examples{
-# Read in the yield curve data:
-data("US_Yields")
+# Read in the yield curve data (US or UK):
+data("US_Yields") # data("UK_Yields")
 
-# Restrict to dates since 2006:
-Y = Y[which(dates > as.Date("2006-01-01")),];
+# Restrict to dates since 2012:
+Y = Y[which(dates > as.Date("2012-01-01")),];
+dates = dates[which(dates > as.Date("2012-01-01"))] # subset the dates for easy reference
 
 # Run the MCMC:
-mcmc_output = fdlm(Y, tau, K = 3, nsims = 1000)
+mcmc_output = fdlm(Y, tau, K = 3, nsims = 2500, burnin = 1000, mcmc_params = list("beta", "fk", "Yhat", "sigma_e"))
+
+# Plot the factors:
+plot_factors(mcmc_output$beta, dates)
+
+# Plot the factor loading curves:
+plot_flc(mcmc_output$fk, tau)
+
+# Some diagnostics: effective sample size(s) (may be slow!)
+getEffSize(mcmc_output$beta)
+getEffSize(mcmc_output$fk)
+# getEffSize(mcmc_output$Yhat)
+
+
 }

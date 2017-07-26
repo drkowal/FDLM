@@ -12,7 +12,7 @@ using namespace Rcpp;
 //' @param Psi \code{J x K} matrix of previous factor loading curve coefficients
 //' @param BtB \code{J x J} matrix of \code{B.t()*B}
 //' @param Omega \code{J x J} prior precision/penalty matrix
-//' @param lamda \code{K}-dimensional vector of prior precisions
+//' @param lambda \code{K}-dimensional vector of prior precisions
 //' @param sigmat2 \code{T}-dimensional vector of time-dependent observation error variances
 //' @return Psi \code{J x K} matrix of (orthogonal) factor loading curve coefficients
 //'
@@ -91,7 +91,7 @@ arma::mat sampleFLC(arma::mat BtY, arma::mat Beta, arma::mat Psi, arma::mat BtB,
 //' @param Beta \code{T x K} matrix of factors
 //' @param Psi \code{J x K} matrix of previous factor loading curve coefficients
 //' @param Omega \code{J x J} prior precision/penalty matrix
-//' @param lamda \code{K}-dimensional vector of prior precisions
+//' @param lambda \code{K}-dimensional vector of prior precisions
 //' @param sigmat2 \code{T}-dimensional vector of time-dependent observation error variances
 //' @return Psi \code{J x K} matrix of (orthogonal) factor loading curve coefficients
 //'

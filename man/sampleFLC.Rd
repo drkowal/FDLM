@@ -17,9 +17,9 @@ sampleFLC(BtY, Beta, Psi, BtB, Omega, lambda, sigmat2)
 
 \item{Omega}{\code{J x J} prior precision/penalty matrix}
 
-\item{sigmat2}{\code{T}-dimensional vector of time-dependent observation error variances}
+\item{lambda}{\code{K}-dimensional vector of prior precisions}
 
-\item{lamda}{\code{K}-dimensional vector of prior precisions}
+\item{sigmat2}{\code{T}-dimensional vector of time-dependent observation error variances}
 }
 \value{
 Psi \code{J x K} matrix of (orthogonal) factor loading curve coefficients
