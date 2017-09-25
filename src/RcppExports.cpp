@@ -8,7 +8,7 @@ using namespace Rcpp;
 
 // sampleFLC
 arma::mat sampleFLC(arma::mat BtY, arma::mat Beta, arma::mat Psi, arma::mat BtB, arma::mat Omega, arma::vec lambda, arma::vec sigmat2);
-RcppExport SEXP FDLM_sampleFLC(SEXP BtYSEXP, SEXP BetaSEXP, SEXP PsiSEXP, SEXP BtBSEXP, SEXP OmegaSEXP, SEXP lambdaSEXP, SEXP sigmat2SEXP) {
+RcppExport SEXP _FDLM_sampleFLC(SEXP BtYSEXP, SEXP BetaSEXP, SEXP PsiSEXP, SEXP BtBSEXP, SEXP OmegaSEXP, SEXP lambdaSEXP, SEXP sigmat2SEXP) {
 BEGIN_RCPP
     Rcpp::RObject rcpp_result_gen;
     Rcpp::RNGScope rcpp_rngScope_gen;
@@ -25,7 +25,7 @@ END_RCPP
 }
 // sampleFLC_orthog
 arma::mat sampleFLC_orthog(arma::mat BtY, arma::mat Beta, arma::mat Psi, arma::mat Omega, arma::vec lambda, arma::vec sigmat2);
-RcppExport SEXP FDLM_sampleFLC_orthog(SEXP BtYSEXP, SEXP BetaSEXP, SEXP PsiSEXP, SEXP OmegaSEXP, SEXP lambdaSEXP, SEXP sigmat2SEXP) {
+RcppExport SEXP _FDLM_sampleFLC_orthog(SEXP BtYSEXP, SEXP BetaSEXP, SEXP PsiSEXP, SEXP OmegaSEXP, SEXP lambdaSEXP, SEXP sigmat2SEXP) {
 BEGIN_RCPP
     Rcpp::RObject rcpp_result_gen;
     Rcpp::RNGScope rcpp_rngScope_gen;
@@ -38,4 +38,71 @@ BEGIN_RCPP
     rcpp_result_gen = Rcpp::wrap(sampleFLC_orthog(BtY, Beta, Psi, Omega, lambda, sigmat2));
     return rcpp_result_gen;
 END_RCPP
+}
+// sampleFLC_cons
+arma::mat sampleFLC_cons(arma::mat BtY, arma::mat Beta, arma::mat Psi, arma::mat BtB, arma::mat Omega, arma::mat BtCon, arma::vec lambda, arma::vec sigmat2);
+RcppExport SEXP _FDLM_sampleFLC_cons(SEXP BtYSEXP, SEXP BetaSEXP, SEXP PsiSEXP, SEXP BtBSEXP, SEXP OmegaSEXP, SEXP BtConSEXP, SEXP lambdaSEXP, SEXP sigmat2SEXP) {
+BEGIN_RCPP
+    Rcpp::RObject rcpp_result_gen;
+    Rcpp::RNGScope rcpp_rngScope_gen;
+    Rcpp::traits::input_parameter< arma::mat >::type BtY(BtYSEXP);
+    Rcpp::traits::input_parameter< arma::mat >::type Beta(BetaSEXP);
+    Rcpp::traits::input_parameter< arma::mat >::type Psi(PsiSEXP);
+    Rcpp::traits::input_parameter< arma::mat >::type BtB(BtBSEXP);
+    Rcpp::traits::input_parameter< arma::mat >::type Omega(OmegaSEXP);
+    Rcpp::traits::input_parameter< arma::mat >::type BtCon(BtConSEXP);
+    Rcpp::traits::input_parameter< arma::vec >::type lambda(lambdaSEXP);
+    Rcpp::traits::input_parameter< arma::vec >::type sigmat2(sigmat2SEXP);
+    rcpp_result_gen = Rcpp::wrap(sampleFLC_cons(BtY, Beta, Psi, BtB, Omega, BtCon, lambda, sigmat2));
+    return rcpp_result_gen;
+END_RCPP
+}
+// sampleFLC_cons_1
+arma::mat sampleFLC_cons_1(arma::mat BtY, arma::mat Beta, arma::mat Psi, arma::mat BtB, arma::mat Omega, arma::mat BtCon, arma::vec lambda, arma::vec sigmat2);
+RcppExport SEXP _FDLM_sampleFLC_cons_1(SEXP BtYSEXP, SEXP BetaSEXP, SEXP PsiSEXP, SEXP BtBSEXP, SEXP OmegaSEXP, SEXP BtConSEXP, SEXP lambdaSEXP, SEXP sigmat2SEXP) {
+BEGIN_RCPP
+    Rcpp::RObject rcpp_result_gen;
+    Rcpp::RNGScope rcpp_rngScope_gen;
+    Rcpp::traits::input_parameter< arma::mat >::type BtY(BtYSEXP);
+    Rcpp::traits::input_parameter< arma::mat >::type Beta(BetaSEXP);
+    Rcpp::traits::input_parameter< arma::mat >::type Psi(PsiSEXP);
+    Rcpp::traits::input_parameter< arma::mat >::type BtB(BtBSEXP);
+    Rcpp::traits::input_parameter< arma::mat >::type Omega(OmegaSEXP);
+    Rcpp::traits::input_parameter< arma::mat >::type BtCon(BtConSEXP);
+    Rcpp::traits::input_parameter< arma::vec >::type lambda(lambdaSEXP);
+    Rcpp::traits::input_parameter< arma::vec >::type sigmat2(sigmat2SEXP);
+    rcpp_result_gen = Rcpp::wrap(sampleFLC_cons_1(BtY, Beta, Psi, BtB, Omega, BtCon, lambda, sigmat2));
+    return rcpp_result_gen;
+END_RCPP
+}
+// sampleFLC_1
+arma::mat sampleFLC_1(arma::mat BtY, arma::mat Beta, arma::mat Psi, arma::mat BtB, arma::mat Omega, arma::vec lambda, arma::vec sigmat2);
+RcppExport SEXP _FDLM_sampleFLC_1(SEXP BtYSEXP, SEXP BetaSEXP, SEXP PsiSEXP, SEXP BtBSEXP, SEXP OmegaSEXP, SEXP lambdaSEXP, SEXP sigmat2SEXP) {
+BEGIN_RCPP
+    Rcpp::RObject rcpp_result_gen;
+    Rcpp::RNGScope rcpp_rngScope_gen;
+    Rcpp::traits::input_parameter< arma::mat >::type BtY(BtYSEXP);
+    Rcpp::traits::input_parameter< arma::mat >::type Beta(BetaSEXP);
+    Rcpp::traits::input_parameter< arma::mat >::type Psi(PsiSEXP);
+    Rcpp::traits::input_parameter< arma::mat >::type BtB(BtBSEXP);
+    Rcpp::traits::input_parameter< arma::mat >::type Omega(OmegaSEXP);
+    Rcpp::traits::input_parameter< arma::vec >::type lambda(lambdaSEXP);
+    Rcpp::traits::input_parameter< arma::vec >::type sigmat2(sigmat2SEXP);
+    rcpp_result_gen = Rcpp::wrap(sampleFLC_1(BtY, Beta, Psi, BtB, Omega, lambda, sigmat2));
+    return rcpp_result_gen;
+END_RCPP
+}
+
+static const R_CallMethodDef CallEntries[] = {
+    {"_FDLM_sampleFLC", (DL_FUNC) &_FDLM_sampleFLC, 7},
+    {"_FDLM_sampleFLC_orthog", (DL_FUNC) &_FDLM_sampleFLC_orthog, 6},
+    {"_FDLM_sampleFLC_cons", (DL_FUNC) &_FDLM_sampleFLC_cons, 8},
+    {"_FDLM_sampleFLC_cons_1", (DL_FUNC) &_FDLM_sampleFLC_cons_1, 8},
+    {"_FDLM_sampleFLC_1", (DL_FUNC) &_FDLM_sampleFLC_1, 7},
+    {NULL, NULL, 0}
+};
+
+RcppExport void R_init_FDLM(DllInfo *dll) {
+    R_registerRoutines(dll, NULL, CallEntries, NULL, NULL);
+    R_useDynamicSymbols(dll, FALSE);
 }

@@ -10,6 +10,7 @@
 #' @param YF \code{T x K} matrix of data \code{Y} projected onto FLCs, \code{Y\%*\%Fmat}, which takes the place
 #' of \code{Y}; only needed for \code{useFastImpute = TRUE}
 #' @param Gt \code{K x K} evolution matrix; if NULL, set as identity (for random walk)
+#' @param W0 \code{K x K} matrix of initial evolution error covariances; if NULL, set to diag(10^-4, K)
 #' @param kfas_model \code{SSModel} object from KFAS package; if NULL, construct model w/in the sampler (might be slower!)
 #' @param useFastImpute logical; when TRUE, use imputation/projection scheme for the dynamic factors; otherwise use full state space model for factors (slower)
 #' @return The \code{T x K} matrix of dynamic factors, \code{Beta}.
@@ -33,7 +34,7 @@
 #####################################################################################################
 #' @import KFAS
 #' @export
-fdlm_factor = function(Y, sigma_et, Wt,  Fmat = NULL, YF = NULL, Gt = NULL, kfas_model = NULL, useFastImpute = FALSE){
+fdlm_factor = function(Y, sigma_et, Wt,  Fmat = NULL, YF = NULL, Gt = NULL, W0 = NULL, kfas_model = NULL, useFastImpute = FALSE){
 
   # Define these locally
   T = nrow(Y); m = ncol(Y)
@@ -50,7 +51,67 @@ fdlm_factor = function(Y, sigma_et, Wt,  Fmat = NULL, YF = NULL, Gt = NULL, kfas
   }
 
   # Run the sampler
-  simulateSSM(kfas_model, "states", nsim = 1, antithetics=FALSE, filtered=FALSE)[,,1]
+  as.matrix(simulateSSM(kfas_model, "states", nsim = 1, antithetics=FALSE, filtered=FALSE)[,,1])
+}
+#' Factor Loading Curve Sampling Algorithm
+#'
+#' Sample the factor loading curve basis coefficients subject to an orthonormality constraint.
+#' Additional linear constraints may be included as well.
+#'
+#' @param BtY \code{J x T} matrix \code{B.t()*Y} for basis matrix B
+#' @param Beta \code{T x K} matrix of factors
+#' @param Psi \code{J x K} matrix of previous factor loading curve coefficients
+#' @param BtB \code{J x J} matrix of \code{B.t()*B}
+#' @param Omega \code{J x J} prior precision/penalty matrix
+#' @param BtCon (optional) \code{J x Jc} matrix of additional constraints, pre-multiplied by B.t()
+#' @param lambda \code{K}-dimensional vector of prior precisions
+#' @param sigmat2 \code{T}-dimensional vector of time-dependent observation error variances
+#' @return Psi \code{J x K} matrix of factor loading curve coefficients
+#'
+#' @note This is a wrapper for Rcpp functions for the special cases of
+#' \code{K = 1} and whether or not additional (linear) constraints are included,
+#' i.e., whether or not \code{BtCon} is non-\code{NULL}.
+#' @export
+fdlm_flc = function(BtY, Beta, Psi, BtB, Omega, BtCon = NULL, lambda, sigmat2){
+
+  # Obtain the dimensions, in order of appearance:
+  J = nrow(BtY); T = ncol(BtY); K = ncol(Beta);
+
+  # Allow for scalar variance input
+  if(length(sigmat2) == 1) sigmat2 = rep(sigmat2, T)
+
+  # Check dimensions:
+  if( (nrow(Beta) != T) ||
+      (nrow(Psi) != J) || (ncol(Psi) != K) ||
+      (nrow(BtB) != J) || (ncol(BtB) != J) ||
+      (nrow(Omega) != J) || (ncol(Omega) != J) ||
+      (length(lambda) != K) ||
+      (length(sigmat2) != T)
+  ) stop("Mismatched dimensions in FLC sampler")
+
+  # No additional constraints (besides orthonormality of FLCs themselves)
+  if(is.null(BtCon)){
+
+    if(K == 1){
+      # Special case: (FLC) orthogonality not necessary
+      Psi = sampleFLC_1(BtY = BtY, Beta = Beta, Psi = Psi, BtB = BtB, Omega = Omega, lambda = lambda, sigmat2 = sigmat2)
+    } else {
+      Psi = sampleFLC(BtY = BtY, Beta = Beta, Psi = Psi, BtB = BtB, Omega = Omega, lambda = lambda, sigmat2 = sigmat2)
+    }
+
+
+  } else {
+    # Additional constraints: orthogonal to BtCon
+
+
+    # Special case: (FLC) orthogonality not necessary
+    if(K == 1){
+      Psi = sampleFLC_cons_1(BtY = BtY, Beta = Beta, Psi = Psi, BtB = BtB, Omega = Omega, BtCon = BtCon, lambda = lambda, sigmat2 = sigmat2)
+    } else {
+      Psi = sampleFLC_cons(BtY = BtY, Beta = Beta, Psi = Psi, BtB = BtB, Omega = Omega, BtCon = BtCon, lambda = lambda, sigmat2 = sigmat2)
+    }
+
+  }
 }
 #####################################################################################################
 #' Evolution error variance sampler
@@ -81,10 +142,12 @@ fdlm_factor = function(Y, sigma_et, Wt,  Fmat = NULL, YF = NULL, Gt = NULL, kfas
 #####################################################################################################
 #' @export
 sample_Wt = function(resBeta, Rinv = diag(1, K), rh0 = K, useDiagonal=FALSE){
-  K = ncol(resBeta)
+  K = ncol(as.matrix(resBeta))
   if(useDiagonal){
     # Assumes independent Gamma(0.001, 0.001) priors for each component
-    diag(apply(resBeta, 2, function(x) 1/rgamma(n=1, shape = 0.001 + (length(x)-1)/2, rate = sum(x^2)/2 + 0.001)))
+    if(K > 1){
+      diag(apply(resBeta, 2, function(x) 1/rgamma(n=1, shape = 0.001 + (length(x)-1)/2, rate = sum(x^2)/2 + 0.001)))
+    } else  diag(1/rgamma(n=1, shape = 0.001 + (length(resBeta)-1)/2, rate = sum(resBeta^2)/2 + 0.001), 1)
   } else chol2inv(chol(MCMCpack::rwish(rh0 + nrow(resBeta), chol2inv(chol(Rinv*rh0 + crossprod(resBeta))))))
 }
 #####################################################################################################
@@ -121,4 +184,90 @@ sample_lambda = function(lambda, Psi, Omega = NULL, uniformPrior = TRUE, orderLa
     } else lambda[k] = rgamma(1, shape = shape0, rate = rate0)
   }
   lambda
+}
+#' Sample the unconditional mean in a VAR
+#'
+#' Compue one draw of the unconditional mean \code{mu} in a VAR assuming a
+#' Gaussian prior (with mean zero).
+#'
+#' Sample the unconditional mean \code{mu} using the model
+#'
+#' \code{y_t = mu + G(y_{t-1} - mu) + e_t},
+#'
+#' with \code{e_t ~ N(0, Sigma)} and prior \code{mu ~ N(0, solve(priorPrec))}
+#'
+#' @param yt the \code{T x p} matrix of multivariate time series
+#' @param G the \code{p x p} VAR coefficient matrix
+#' @param Sigma the \code{p x p} error variance matrix
+#' @param priorPrec the \code{p x p} prior precision matrix;
+#' if \code{NULL}, use \code{diag(10^-6, p)}
+#'
+#' @return The \code{p x 1} matrix of unconditional means.
+#' @export
+sampleARmu = function(yt, G, Sigma, priorPrec = NULL){
+
+  # Store dimensions locally:
+  T = nrow(yt); p = ncol(yt)
+
+  # Prior precision:
+  if(is.null(priorPrec)) priorPrec = diag(10^-6, p)
+
+  # Recurring terms:
+  I_p = diag(p)
+  I_Gt_SigInv = crossprod(I_p - G, chol2inv(chol(Sigma)))
+
+  # Cholesky of Quadratic term:
+  chQ_mu = chol(priorPrec + (T-1)*I_Gt_SigInv%*%(I_p - G))
+
+  # Linear term:
+  l_mu = as.matrix(I_Gt_SigInv%*%colSums((yt[-1,] - t(tcrossprod(G, as.matrix(yt[-T,]))))))
+
+  # And return:
+  as.matrix(backsolve(chQ_mu,forwardsolve(t(chQ_mu), l_mu) + rnorm(p)))
+}
+#' Sample the VAR coefficient matrix
+#'
+#' Compue one draw of the VAR coefficient matrix \code{G} assuming a
+#' Gaussian prior (with mean zero). The sampler also assumes the VAR
+#' is lag-1.
+#'
+#' @param ytc the \code{T x p} matrix of (centered) multivariate time series
+#' @param Sigma the \code{p x p} error variance matrix
+#' @param priorPrec the \code{p x p} prior precision matrix;
+#' if \code{NULL}, use \code{diag(10^-6, p)}
+#' @param stationary logical; if \code{TRUE}, resample until stationary
+#'
+#' @return The \code{p x p} VAR coefficient matrix.
+#' @export
+sampleVAR = function(ytc, Sigma, priorPrec = NULL, stationary = TRUE){
+
+  # Store dimensions locally:
+  T = nrow(ytc); p = ncol(ytc)
+
+  # Prior precision:
+  if(is.null(priorPrec)) priorPrec = diag(10^-6, p^2)
+
+  Sigma_inv = chol2inv(chol(Sigma))
+
+  # Choleksy of quadratic term:
+  chQg = chol(priorPrec + kronecker(crossprod(ytc[-T,]), Sigma_inv))
+  # Linear term:
+  lg = matrix(Sigma_inv%*%crossprod(ytc[-1,], ytc[-T,]))
+
+  # And sample the VAR coefficient matrix:
+  G = matrix(backsolve(chQg,forwardsolve(t(chQg), lg) + rnorm(p^2)), nrow = p, byrow = FALSE)
+
+  # To enforce stationarity, resample until we obtain a stationary matrix
+  # (or until the we exceed 1000 tries...)
+  if(stationary){
+    counter = 0 # So we don't do this forever...
+    while(!all(abs(eigen(G, only.values=TRUE)$values) < 1) && counter < 1000){
+      # Nonstationary, so resample
+      G = matrix(backsolve(chQg,forwardsolve(t(chQg), lg) + rnorm(p^2)), nrow = p, byrow = FALSE)
+      # And update counter
+      counter = counter + 1
+    }
+  }
+
+  return(G)
 }

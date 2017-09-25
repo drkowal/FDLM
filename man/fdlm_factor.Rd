@@ -5,7 +5,7 @@
 \title{Sample the dynamic factors}
 \usage{
 fdlm_factor(Y, sigma_et, Wt, Fmat = NULL, YF = NULL, Gt = NULL,
-  kfas_model = NULL, useFastImpute = FALSE)
+  W0 = NULL, kfas_model = NULL, useFastImpute = FALSE)
 }
 \arguments{
 \item{Y}{the \code{T x m} data observation matrix, where \code{T} is the number of time points and \code{m} is the number of observation points (\code{NA}s allowed)}
@@ -20,6 +20,8 @@ fdlm_factor(Y, sigma_et, Wt, Fmat = NULL, YF = NULL, Gt = NULL,
 of \code{Y}; only needed for \code{useFastImpute = TRUE}}
 
 \item{Gt}{\code{K x K} evolution matrix; if NULL, set as identity (for random walk)}
+
+\item{W0}{\code{K x K} matrix of initial evolution error covariances; if NULL, set to diag(10^-4, K)}
 
 \item{kfas_model}{\code{SSModel} object from KFAS package; if NULL, construct model w/in the sampler (might be slower!)}
 

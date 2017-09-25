@@ -21,7 +21,7 @@
 #' @import Rcpp
 #' @export
 sampleFLC <- function(BtY, Beta, Psi, BtB, Omega, lambda, sigmat2) {
-    .Call('FDLM_sampleFLC', PACKAGE = 'FDLM', BtY, Beta, Psi, BtB, Omega, lambda, sigmat2)
+    .Call('_FDLM_sampleFLC', PACKAGE = 'FDLM', BtY, Beta, Psi, BtB, Omega, lambda, sigmat2)
 }
 
 #' Factor Loading Curve Sampling Algorithm
@@ -43,6 +43,77 @@ sampleFLC <- function(BtY, Beta, Psi, BtB, Omega, lambda, sigmat2) {
 #' @import Rcpp
 #' @export
 sampleFLC_orthog <- function(BtY, Beta, Psi, Omega, lambda, sigmat2) {
-    .Call('FDLM_sampleFLC_orthog', PACKAGE = 'FDLM', BtY, Beta, Psi, Omega, lambda, sigmat2)
+    .Call('_FDLM_sampleFLC_orthog', PACKAGE = 'FDLM', BtY, Beta, Psi, Omega, lambda, sigmat2)
+}
+
+#' Factor Loading Curve Sampling Algorithm
+#'
+#' Sample the factor loading curve basis coefficients subject to
+#' an orthonormality constraint with an additional matrix of (orthogonal) constraints
+#' as an input.
+#'
+#' @param BtY \code{J x T} matrix \code{B.t()*Y} for basis matrix B
+#' @param Beta \code{T x K} matrix of factors
+#' @param Psi \code{J x K} matrix of previous factor loading curve coefficients
+#' @param BtB \code{J x J} matrix of \code{B.t()*B}
+#' @param Omega \code{J x J} prior precision/penalty matrix
+#' @param BtCon \code{J x Jc} matrix of additional constraints, pre-multiplied by B.t()
+#' @param lambda \code{K}-dimensional vector of prior precisions
+#' @param sigmat2 \code{T}-dimensional vector of time-dependent observation error variances
+#' @return Psi \code{J x K} matrix of (orthogonal) factor loading curve coefficients
+#'
+#' @note This function uses \code{Rcpp} for computational efficiency.
+#'
+#' @useDynLib FDLM
+#' @import Rcpp
+#' @export
+sampleFLC_cons <- function(BtY, Beta, Psi, BtB, Omega, BtCon, lambda, sigmat2) {
+    .Call('_FDLM_sampleFLC_cons', PACKAGE = 'FDLM', BtY, Beta, Psi, BtB, Omega, BtCon, lambda, sigmat2)
+}
+
+#' Factor Loading Curve Sampling Algorithm for K=1
+#'
+#' Sample the factor loading curve basis coefficients for K=1 factor subject to
+#' an additional matrix of (orthogonal) constraints as an input.
+#'
+#' @param BtY \code{J x T} matrix \code{B.t()*Y} for basis matrix B
+#' @param Beta \code{T x 1} matrix of factors
+#' @param Psi \code{J x 1} matrix of previous factor loading curve coefficients
+#' @param BtB \code{J x J} matrix of \code{B.t()*B}
+#' @param Omega \code{J x J} prior precision/penalty matrix
+#' @param BtCon \code{J x Jc} matrix of additional constraints, pre-multiplied by B.t()
+#' @param lambda \code{1}-dimensional vector of prior precisions
+#' @param sigmat2 \code{T}-dimensional vector of time-dependent observation error variances
+#' @return Psi \code{J x 1} matrix of factor loading curve coefficients
+#'
+#' @note This function uses \code{Rcpp} for computational efficiency.
+#'
+#' @useDynLib FDLM
+#' @import Rcpp
+#' @export
+sampleFLC_cons_1 <- function(BtY, Beta, Psi, BtB, Omega, BtCon, lambda, sigmat2) {
+    .Call('_FDLM_sampleFLC_cons_1', PACKAGE = 'FDLM', BtY, Beta, Psi, BtB, Omega, BtCon, lambda, sigmat2)
+}
+
+#' Factor Loading Curve Sampling Algorithm for K=1
+#'
+#' Sample the factor loading curve basis coefficients for K=1 factor.
+#'
+#' @param BtY \code{J x T} matrix \code{B.t()*Y} for basis matrix B
+#' @param Beta \code{T x 1} matrix of factors
+#' @param Psi \code{J x 1} matrix of previous factor loading curve coefficients
+#' @param BtB \code{J x J} matrix of \code{B.t()*B}
+#' @param Omega \code{J x J} prior precision/penalty matrix
+#' @param lambda \code{1}-dimensional vector of prior precisions
+#' @param sigmat2 \code{T}-dimensional vector of time-dependent observation error variances
+#' @return Psi \code{J x 1} matrix of factor loading curve coefficients
+#'
+#' @note This function uses \code{Rcpp} for computational efficiency.
+#'
+#' @useDynLib FDLM
+#' @import Rcpp
+#' @export
+sampleFLC_1 <- function(BtY, Beta, Psi, BtB, Omega, lambda, sigmat2) {
+    .Call('_FDLM_sampleFLC_1', PACKAGE = 'FDLM', BtY, Beta, Psi, BtB, Omega, lambda, sigmat2)
 }
 

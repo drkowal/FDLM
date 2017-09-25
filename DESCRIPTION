@@ -20,7 +20,7 @@ License: GPL-3
 Encoding: UTF-8
 LazyData: false
 RoxygenNote: 6.0.1
-Imports: Rcpp (>= 0.12.10), RcppArmadillo, KFAS, MCMCpack, truncdist, coda, viridis
+Imports: Rcpp (>= 0.12.10), RcppArmadillo, KFAS, MCMCpack, truncdist, coda, dsp, vars
 LinkingTo: Rcpp, RcppArmadillo
 NeedsCompilation: yes
 

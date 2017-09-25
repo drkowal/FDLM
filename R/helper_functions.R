@@ -1,7 +1,8 @@
 #####################################################################################################
 # Initialize the factors and FLCs using a SVD
 # Inputs: Y, tau, K (see fdlm() for details)
-# Returns a list of the main parameters in the model: Beta, d, and splineInfo (spline basis matrices)
+# Returns a list of the main parameters in the model:
+  # Beta, d, splineInfo (spline basis matrices), and the imputed data matrix Y0
 #####################################################################################################
 fdlm_init = function(Y, tau, K){
 
@@ -40,12 +41,220 @@ fdlm_init = function(Y, tau, K){
   F0 = splineInfo$Bmat%*%Psi0
 
   # Factors:
-  Beta0 = (singVal$u%*%diag(singVal$d))[,1:K]
+  Beta0 = as.matrix((singVal$u%*%diag(singVal$d))[,1:K])
 
   # Initialize all curves to have positive sums (especially nice for the intercept)
   negSumk = which(colSums(F0) < 0); Psi0[,negSumk] = -Psi0[,negSumk]; Beta0[,negSumk] = -Beta0[,negSumk]
 
-  list(Beta = Beta0, Psi = Psi0, splineInfo = splineInfo)
+  list(Beta = Beta0, Psi = Psi0, splineInfo = splineInfo, Y0 = Y0)
+}
+#####################################################################################################
+# Initialize the parameters in the Dynamic Nelson-Siegel Model
+#
+dns_init = function(Y, tau, orthogonalize = TRUE){
+
+  # Rescale observation points to [0,1]
+  tau01 = (tau - min(tau))/diff(range(tau))
+
+  # And the dimensions:
+  T = nrow(Y); m = ncol(Y)
+
+  # Initial value of lambda_ns: Diebold and Li value, scaled for yearly maturities (D+L use months)
+  lambda_ns = .0609*12 # 0.0609 is D+L's choice to maximize the curvature factor at 30 months
+  F_ns = f_ns(tau, lambda_ns)
+
+  # Orthogonalize:
+  if(orthogonalize) F_ns = qr.Q(qr(F_ns))
+
+  # Check for signs, then flip if necessary:
+  if(sum(F_ns[,1]) < 0) F_ns[,1] = -F_ns[,1]
+
+  # For initialization: impute
+  Y0 = matrix(NA, nr = T, nc = m) # Storage for imputed initialization data matrix
+  allMissing.t = (rowSums(!is.na(Y))==0)   # Boolean indicator of times at which no points are observed
+  # First: for all times at which we observe a curve, impute the full curve (across tau)
+  Y0[!allMissing.t,] = t(apply(Y[!allMissing.t,], 1, function(x) splinefun(tau01, x, method='natural')(tau01)))
+  # Second: impute any times for which no curve is observed (i.e., impute across time)
+  Y0 = apply(Y0, 2, function(x){splinefun(1:T, x, method='natural')(1:T)})
+
+  # Initial factors:
+  if(orthogonalize){
+    Beta_ns = Y0%*%F_ns
+  } else Beta_ns = Y0%*%F_ns%*%chol2inv(chol(crossprod(F_ns)))
+
+  list(Beta_ns = Beta_ns, F_ns = F_ns, lambda_ns = lambda_ns)
+}
+#####################################################################################################
+#' Initialize the parametric terms
+#'
+#' Compute initial values for the factors and nonlinear parameter (if necessary)
+#' of the parametric component.
+#'
+#' @param Y the \code{T x m} data observation matrix, where \code{T} is the number of time points and \code{m} is the number of observation points (\code{NA}s allowed)
+#' @param tau vector of observation points (\code{m}-dimensional)
+#' @param f_p a function to compute the parametric component, which must return a \code{m x K_p} matrix
+#' for \code{K_p} the number of parametric curves; may include a (scalar) nonlinear parameter argument
+#' @param orthogonalize logical; when TRUE, orthogonalize the loading curve matrix
+#'
+#' @return a list containing
+#' \itemize{
+#' \item \code{Beta_p} the \code{T x K_p} matrix of parametric factors
+#' \item \code{F_p} the \code{m x K_p} matrix of parametric loading curves
+#' \item \code{lambda_p} the scalar nonlinear parameter
+#' }
+#'
+#' @details Compute initial values via the following algorithm:
+#' \enumerate{
+#' \item Impute missing values in \code{Y}
+#' \item Initialize \code{lambda_p = 1} and compute \code{F_p}; orthogonalize if specified
+#' \item Estimate \code{Beta_p} via least squares
+#' \item Estimate an initial standard deviation \code{sigma_0} via conditional MLE
+#' \item Estimate \code{lambda_p} via conditional MLE and recompute \code{F_p}; orthogonalize if specified
+#' }
+#' @import KFAS
+par_init = function(Y, tau, f_p, orthogonalize = TRUE){
+
+  # Rescale observation points to [0,1]
+  tau01 = (tau - min(tau))/diff(range(tau))
+
+  # And the dimensions:
+  T = nrow(Y); m = ncol(Y)
+
+  # Initial value of lambda_p
+  lambda_p = 1
+  F_p = f_p(tau, lambda_p)
+
+  # Orthogonalize:
+  if(orthogonalize) F_p = qr.Q(qr(F_p))
+
+  # For initialization: impute
+  Y0 = matrix(NA, nr = T, nc = m) # Storage for imputed initialization data matrix
+  allMissing.t = (rowSums(!is.na(Y))==0)   # Boolean indicator of times at which no points are observed
+  # First: for all times at which we observe a curve, impute the full curve (across tau)
+  Y0[!allMissing.t,] = t(apply(Y[!allMissing.t,], 1, function(x) splinefun(tau01, x, method='natural')(tau01)))
+  # Second: impute any times for which no curve is observed (i.e., impute across time)
+  Y0 = apply(Y0, 2, function(x){splinefun(1:T, x, method='natural')(1:T)})
+
+  # Initial factors:
+  if(orthogonalize){
+    Beta_p = Y0%*%F_p
+  } else Beta_p = Y0%*%F_p%*%chol2inv(chol(crossprod(F_p)))
+
+  sigma_0 = sd(Y - tcrossprod(Beta_p, F_p), na.rm=TRUE)
+
+  # Compute an optimum:
+  lambda_p =  optim(lambda_p, fn = function(x){
+    F_p_x = f_p(tau, x); if(orthogonalize) F_p_x = qr.Q(qr(F_p_x))
+    sum(0.5*rowSums((tcrossprod(Beta_p, F_p_x) - Y)^2, na.rm = TRUE)/sigma_0^2)
+  }, method = "L-BFGS-B", lower = 10^-4, upper = 10^4)$par
+
+  # Update F_p
+  F_p = f_p(tau, lambda_p)
+
+  # Orthogonalize:
+  if(orthogonalize) F_p = qr.Q(qr(F_p))
+
+  # Check for signs, then flip if necessary:
+  if(sum(F_p[,1]) < 0) {F_p[,1] = -F_p[,1]; Beta_p[,1] = -Beta_p[,1]}
+
+
+  list(Beta_p = Beta_p, F_p = F_p, lambda_p = lambda_p)
+}
+#####################################################################################################
+#' Initialize the parametric terms using MLEs
+#'
+#' Compute initial values for the factors and nonlinear parameter (if necessary)
+#' of the parametric component using the Kalman Filter.
+#'
+#' @param Y the \code{T x m} data observation matrix, where \code{T} is the number of time points and \code{m} is the number of observation points (\code{NA}s allowed)
+#' @param tau vector of observation points (\code{m}-dimensional)
+#' @param f_p a function to compute the parametric component, which must return a \code{m x K_p} matrix
+#' for \code{K_p} the number of parametric curves; may include a (scalar) nonlinear parameter argument
+#' @param orthogonalize logical; when TRUE, orthogonalize the loading curve matrix
+#'
+#' @return a list containing
+#' \itemize{
+#' \item \code{Beta_p} the \code{T x K_p} matrix of parametric factors
+#' \item \code{F_p} the \code{m x K_p} matrix of parametric loading curves
+#' \item \code{lambda_p} the scalar nonlinear parameter
+#' }
+#'
+#' @details Compute initial values via the following algorithm:
+#' \enumerate{
+#' \item Impute missing values in \code{Y}
+#' \item Initialize \code{lambda_p = 1} and compute \code{F_p}; orthogonalize if specified
+#' \item Estimate \code{Beta_p} via least squares
+#' \item Estimate an initial standard deviation \code{sigma_0} via conditional MLE
+#' \item Estimate \code{lambda_p} via conditional MLE and recompute \code{F_p}; orthogonalize if specified
+#' }
+#' @import KFAS
+par_init_ssm = function(Y, tau, f_p, orthogonalize = TRUE){
+
+  # Compute the dimensions:
+  T = nrow(Y); m = ncol(Y)
+
+  # Initial loading matrix values (and dimensions), mostly for constructing ssmodel
+  F_p = f_p(tau, 1); K_p = ncol(F_p)
+  if(orthogonalize) F_p = qr.Q(qr(F_p))
+
+  # Initial parameters: nonlinear parameter, obs log-variance, evol diagonal log-variance
+  pars0 = c(1, 2*log(sd(Y, na.rm = TRUE)), rep(0, K_p))
+
+  # Initial state space model (KFAS)
+  kfas_model = SSModel(Y ~ -1 +
+                         (SSMcustom(Z = F_p,
+                                    T = diag(K_p),
+                                    Q = diag(K_p),
+                                    a1 = matrix(0, nr = K_p),
+                                    P1 = diag(10^4, K_p),
+                                    n = T, index = 1:m)),
+                       H = diag(m))
+
+  # Run the optimizer:
+  nmOpt = optim(par = pars0, fn = function(params){
+    -logLik(update_model(params,kfas_model, tau, f_p, orthogonalize))
+  }, method = 'Nelder-Mead')
+
+  # Loading curves:
+  lambda_p = nmOpt$par[1]
+  F_p = f_p(tau, lambda_p); if(orthogonalize) F_p = qr.Q(qr(F_p))
+
+  # And the factors:
+  kfas_model = update_model(nmOpt$par, kfas_model, tau, f_p, orthogonalize)
+  Beta_p = KFS(kfas_model, filtering="none", smoothing="state")$alphahat
+
+  # Return the parameters:
+  list(Beta_p = Beta_p, F_p = F_p, lambda_p = lambda_p)
+}
+#####################################################################################################
+#' Update the KFAS model
+#'
+#' Update the KFAS model using the given parameters, assuming a specific form.
+#'
+#' @param pars vector of parameters
+#' @param model object of class SSModel() which should be updated
+#' @param tau vector of observation points (\code{m}-dimensional)
+#' @param f_p a function to compute the parametric component, which must return a \code{m x K_p} matrix
+#' for \code{K_p} the number of parametric curves; may include a (scalar) nonlinear parameter argument
+#' @param orthogonalize logical; when TRUE, orthogonalize the loading curve matrix
+#' @return The updated \code{model}
+#' @note This function is necessary for state space optimization (initialization)
+update_model = function(pars, model, tau, f_p, orthogonalize){
+
+  m = length(tau)
+
+  # Update the loadings matrix:
+  F_p = f_p(tau, pars[1]); if(orthogonalize) F_p = qr.Q(qr(F_p))
+  model$Z[,,1] = F_p
+
+  K_p = ncol(F_p)
+
+  # Update the observation error variance:
+  model$H[1:m,1:m,1] = diag(exp(pars[2]), m)
+
+  # Update the evoluation error variance:
+  for(k in 1:K_p) model$Q[k,k,1] = exp(pars[2 + k])
+  model
 }
 #####################################################################################################
 # Update (or initialize) the SSModel object used for sampling the factors
@@ -191,9 +400,32 @@ getSplineInfo = function(tau01, m_avg = NULL, orthonormal = TRUE){
   list(Bmat = Bmat, Omega = Omega, BtB = BtB)
 }
 #####################################################################################################
+#' Compute the Nelson-Siegel Curves
+#'
+#' Compute the three Nelson-Siegel curves at a given vector of points
+#'
+#' @param tau the \code{m x 1} vector of observation points (in months)
+#' @param lambda the nonlinear parameter
+#' @return The \code{m x 3} matrix of Nelson-Siegel curves
+#' evaluated at \code{tau}
+#'
+#' @examples
+#' tau = 1:300
+#' F_ns = f_ns(tau)
+#' plot(tau, F_ns[,1], ylim = range(F_ns), type='l', lwd=4)
+#' for(j in 2:3) lines(tau, F_ns[,j], lwd=4,lty=j)
+#'
+#' @export
+f_ns = function(tau, lambda_p = 0.0609){
+  f = matrix(1, nr =length(tau), nc = 3)
+  f[,2] = (1 - exp(-lambda_p*tau))/(lambda_p*tau)
+  f[,3] = ((1 - exp(-lambda_p*tau))/(lambda_p*tau) - exp(-lambda_p*tau))
+  return(f)
+}
+#####################################################################################################
 #' Compute Simultaneous Credible Bands
 #'
-#' Compute (1-alpha)% credible BANDS for a function based on MCMC samples using Crainiceanu et al. (2007)
+#' Compute (1-alpha)\% credible BANDS for a function based on MCMC samples using Crainiceanu et al. (2007)
 #'
 #' @param sampFuns \code{Nsims x m} matrix of \code{Nsims} MCMC samples and \code{m} points along the curve
 #' @param alpha confidence level
@@ -305,7 +537,6 @@ ergMean = function(x) {cumsum(x)/(1:length(x))}
 #'
 #' @importFrom grDevices dev.new
 #' @importFrom graphics abline lines  par plot polygon
-#' @import viridis
 #' @import coda
 #' @export
 plot_factors = function(post_beta, dates = NULL){
@@ -319,7 +550,7 @@ plot_factors = function(post_beta, dates = NULL){
     cb = credBands(as.mcmc(post_beta[,,k])); ci = HPDinterval(as.mcmc(post_beta[,,k]));
     polygon(c(dates, rev(dates)), c(cb[,2], rev(cb[,1])), col='grey50', border=NA);
     polygon(c(dates, rev(dates)), c(ci[,2], rev(ci[,1])), col='grey', border=NA);
-    lines(dates,colMeans(post_beta[,,k]), lwd=8, col=viridis(K, end = .8)[k])
+    lines(dates,colMeans(post_beta[,,k]), lwd=8, col=k)
   }
 }
 #----------------------------------------------------------------------------
@@ -334,7 +565,6 @@ plot_factors = function(post_beta, dates = NULL){
 #'
 #' @importFrom grDevices dev.new
 #' @importFrom graphics abline lines  par plot polygon
-#' @import viridis
 #' @import coda
 #' @export
 plot_flc = function(post_fk, tau = NULL){
@@ -345,12 +575,148 @@ plot_flc = function(post_fk, tau = NULL){
   plot(tau, post_fk[1,,1], ylim = range(post_fk), xlab = expression(tau), ylab = '', main = 'Factor Loading Curves', type='n', cex.lab = 2, cex.axis=2,cex.main=2)
   abline(h = 0, lty=3, lwd=2);
   for(k in K:1){
-    cb = credBands(as.mcmc(post_fk[,,k])); ci = HPDinterval(as.mcmc(post_fk[,,k]));
+    # Credible intervals:
+    ci = HPDinterval(as.mcmc(post_fk[,,k]));
+    # Credible bands (w/ error catch):
+    cb = try(credBands(as.mcmc(post_fk[,,k])), silent = TRUE)
+    if(class(cb) == "try-error") cb = ci
     polygon(c(tau, rev(tau)), c(cb[,2], rev(cb[,1])), col='grey50', border=NA);
     polygon(c(tau, rev(tau)), c(ci[,2], rev(ci[,1])), col='grey', border=NA);
-    lines(tau,colMeans(post_fk[,,k]), lwd=8, col=viridis(K, end = .8)[k])
+    lines(tau,colMeans(post_fk[,,k]), lwd=8, col=k)
   }
 }
+#----------------------------------------------------------------------------
+#' Univariate Slice Sampler from Neal (2008)
+#'
+#' Compute a draw from a univariate distribution using the code provided by
+#' Radford M. Neal. The documentation below is also reproduced from Neal (2008).
+#'
+#' @param x0    Initial point
+#' @param g     Function returning the log of the probability density (plus constant)
+#' @param w     Size of the steps for creating interval (default 1)
+#' @param m     Limit on steps (default infinite)
+#' @param lower Lower bound on support of the distribution (default -Inf)
+#' @param upper Upper bound on support of the distribution (default +Inf)
+#' @param gx0   Value of g(x0), if known (default is not known)
+#'
+#' @return  The point sampled, with its log density attached as an attribute.
+#'
+#' @note The log density function may return -Inf for points outside the support
+#' of the distribution.  If a lower and/or upper bound is specified for the
+#' support, the log density function will not be called outside such limits.
+uni.slice <- function (x0, g, w=1, m=Inf, lower=-Inf, upper=+Inf, gx0=NULL)
+{
+  # Check the validity of the arguments.
+
+  if (!is.numeric(x0) || length(x0)!=1
+      || !is.function(g)
+      || !is.numeric(w) || length(w)!=1 || w<=0
+      || !is.numeric(m) || !is.infinite(m) && (m<=0 || m>1e9 || floor(m)!=m)
+      || !is.numeric(lower) || length(lower)!=1 || x0<lower
+      || !is.numeric(upper) || length(upper)!=1 || x0>upper
+      || upper<=lower
+      || !is.null(gx0) && (!is.numeric(gx0) || length(gx0)!=1))
+  {
+    stop ("Invalid slice sampling argument")
+  }
+
+  # Keep track of the number of calls made to this function.
+  #uni.slice.calls <<- uni.slice.calls + 1
+
+  # Find the log density at the initial point, if not already known.
+
+  if (is.null(gx0))
+  { #uni.slice.evals <<- uni.slice.evals + 1
+    gx0 <- g(x0)
+  }
+
+  # Determine the slice level, in log terms.
+
+  logy <- gx0 - rexp(1)
+
+  # Find the initial interval to sample from.
+
+  u <- runif(1,0,w)
+  L <- x0 - u
+  R <- x0 + (w-u)  # should guarantee that x0 is in [L,R], even with roundoff
+
+  # Expand the interval until its ends are outside the slice, or until
+  # the limit on steps is reached.
+
+  if (is.infinite(m))  # no limit on number of steps
+  {
+    repeat
+    { if (L<=lower) break
+      #uni.slice.evals <<- uni.slice.evals + 1
+      if (g(L)<=logy) break
+      L <- L - w
+    }
+
+    repeat
+    { if (R>=upper) break
+      #uni.slice.evals <<- uni.slice.evals + 1
+      if (g(R)<=logy) break
+      R <- R + w
+    }
+  }
+
+  else if (m>1)  # limit on steps, bigger than one
+  {
+    J <- floor(runif(1,0,m))
+    K <- (m-1) - J
+
+    while (J>0)
+    { if (L<=lower) break
+      #uni.slice.evals <<- uni.slice.evals + 1
+      if (g(L)<=logy) break
+      L <- L - w
+      J <- J - 1
+    }
+
+    while (K>0)
+    { if (R>=upper) break
+      #uni.slice.evals <<- uni.slice.evals + 1
+      if (g(R)<=logy) break
+      R <- R + w
+      K <- K - 1
+    }
+  }
+
+  # Shrink interval to lower and upper bounds.
+
+  if (L<lower)
+  { L <- lower
+  }
+  if (R>upper)
+  { R <- upper
+  }
+
+  # Sample from the interval, shrinking it on each rejection.
+
+  repeat
+  {
+    x1 <- runif(1,L,R)
+
+    #uni.slice.evals <<- uni.slice.evals + 1
+    gx1 <- g(x1)
+
+    if (gx1>=logy) break
+
+    if (x1>x0)
+    { R <- x1
+    }
+    else
+    { L <- x1
+    }
+  }
+
+  # Return the point sampled, with its log density attached as an attribute.
+
+  attr(x1,"log.density") <- gx1
+  return (x1)
+
+}
+
 # Just add these for general use:
-#' @importFrom stats quantile rgamma rnorm sd splinefun var
+#' @importFrom stats quantile rgamma rnorm sd splinefun var rexp runif
 NULL

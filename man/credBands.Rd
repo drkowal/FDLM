@@ -15,7 +15,7 @@ credBands(sampFuns, alpha = 0.05)
 \code{m x 2} matrix of credible bands; the first column is the lower band, the second is the upper band
 }
 \description{
-Compute (1-alpha)% credible BANDS for a function based on MCMC samples using Crainiceanu et al. (2007)
+Compute (1-alpha)\% credible BANDS for a function based on MCMC samples using Crainiceanu et al. (2007)
 }
 \note{
 The input needs not be curves: the simultaneous credible "bands" may be computed
