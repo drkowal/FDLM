@@ -5,7 +5,7 @@
 \title{MCMC Sampling Algorithm for the FDLM}
 \usage{
 fdlm0(Y, tau, K = NULL, nsave = 1000, nburn = 1000, nskip = 10,
-  mcmc_params = list("beta", "fk"), useFastImpute = TRUE,
+  mcmc_params = list("beta", "fk"), h_step = NULL, useFastImpute = TRUE,
   use_obs_SV = FALSE, includeBasisInnovation = TRUE, computeDIC = TRUE)
 }
 \arguments{
@@ -30,8 +30,9 @@ must be one or more of
 \item "sigma_e" (observation error SD)
 \item "Wt" (evolution error variance)
 \item "Yhat" (fitted values)
-\item "yfore" (one-step forecast of Y)
 }}
+
+\item{h_step}{integer for h-step forecasting; if NULL, do not compute any forecasts}
 
 \item{useFastImpute}{logical; when TRUE, use imputation/projection scheme for the dynamic factors; otherwise use full state space model for factors (slower)}
 

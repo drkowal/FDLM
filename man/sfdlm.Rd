@@ -5,7 +5,7 @@
 \title{MCMC Sampling Algorithm for the Semiparametric Functional Dynamic Linear Model}
 \usage{
 sfdlm(Y, tau, f, K_np = NULL, nsave = 1000, nburn = 1000, nskip = 10,
-  mcmc_params = list("beta", "fk"), evol_error_par = "RW",
+  mcmc_params = list("beta", "fk"), h_step = NULL, evol_error_par = "RW",
   evol_error_nonpar = "DHS", use_obs_SV = FALSE,
   includeBasisInnovation = TRUE, log_prior_lambda_p = NULL,
   computeDIC = TRUE)
@@ -36,8 +36,9 @@ must be one or more of
 \item "lambda_p" (parametric nonlinear parameter)
 \item "Wt" (evolution error variance)
 \item "Yhat" (fitted values)
-\item "yfore" (one-step forecast of Y)
 }}
+
+\item{h_step}{integer for h-step forecasting; if NULL, do not compute any forecasts}
 
 \item{evol_error_par}{string denoting the model for the parametric factor evolution;
 must be one of

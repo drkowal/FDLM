@@ -5,7 +5,7 @@
 \title{MCMC Sampling Algorithm for the Parametric Functional Dynamic Linear Model}
 \usage{
 pfdlm(Y, tau, f, nsave = 1000, nburn = 1000, nskip = 10,
-  mcmc_params = list("beta", "fk"), evol_error_par = "RW",
+  mcmc_params = list("beta", "fk"), h_step = NULL, evol_error_par = "RW",
   use_obs_SV = FALSE, orthogonalize = TRUE, log_prior_lambda_p = NULL,
   computeDIC = TRUE)
 }
@@ -33,8 +33,9 @@ must be one or more of
 \item "lambda_p" (parametric nonlinear parameter)
 \item "Wt" (evolution error variance)
 \item "Yhat" (fitted values)
-\item "yfore" (one-step forecast of Y)
 }}
+
+\item{h_step}{integer for h-step forecasting; if NULL, do not compute any forecasts}
 
 \item{evol_error_par}{string denoting the model for the parametric factor evolution;
 must be one of

@@ -23,8 +23,8 @@
 #' \item "sigma_e" (observation error SD)
 #' \item "Wt" (evolution error variance)
 #' \item "Yhat" (fitted values)
-#' \item "yfore" (one-step forecast of Y)
 #' }
+#' @param h_step integer for h-step forecasting; if NULL, do not compute any forecasts
 #' @param useFastImpute logical; when TRUE, use imputation/projection scheme for the dynamic factors; otherwise use full state space model for factors (slower)
 #' @param use_obs_SV logical; when TRUE, include a stochastic volatility model
 #' for the observation error variance
@@ -69,6 +69,7 @@
 fdlm = function(Y, tau, K = NULL,
                 nsave = 1000, nburn = 1000, nskip = 10,
                 mcmc_params = list("beta", "fk"),
+                h_step = NULL,
                 useFastImpute = TRUE,
                 use_obs_SV = FALSE,
                 includeBasisInnovation = TRUE,
@@ -135,7 +136,7 @@ fdlm = function(Y, tau, K = NULL,
   if(!is.na(match('sigma_w', mcmc_params))) post.sigma_w = array(NA, c(nsave, 1))
   if(!is.na(match('Wt', mcmc_params))) post.Wt = array(NA, c(nsave, K, K))
   if(!is.na(match('Yhat', mcmc_params)) || computeDIC) post.Yhat = array(NA, c(nsave, T, m))
-  if(!is.na(match('yfore', mcmc_params))) post.yfore = array(NA, c(nsave, m))
+  if(!is.null(h_step)) post.yfore = array(NA, c(nsave, h_step, m))
   if(computeDIC) post_loglike = numeric(nsave)
 
   # Total number of MCMC simulations:
@@ -214,7 +215,15 @@ fdlm = function(Y, tau, K = NULL,
         if(!is.na(match('sigma_w', mcmc_params))) post.sigma_w[isave,] = sigma_w
         if(!is.na(match('Wt', mcmc_params))) post.Wt[isave,,] = Wt[,,1]
         if(!is.na(match('Yhat', mcmc_params)) || computeDIC) post.Yhat[isave,,] = Btheta # + sigma_e*rnorm(length(Y))
-        if(!is.na(match('yfore', mcmc_params))) post.yfore[isave,] =Fmat%*%kfas_model$T[,,T]%*%Beta[T,]
+        #if(!is.na(match('yfore', mcmc_params))) post.yfore[isave,] =Fmat%*%kfas_model$T[,,T]%*%Beta[T,]
+        if(!is.null(h_step)) {
+          GbetaT = kfas_model$T[,,T]%*%Beta[T,]
+          post.yfore[isave,1, ] = Fmat%*%GbetaT
+          if(h_step > 1){for(h in 2:h_step){
+            GbetaT = kfas_model$T[,,T]%*%GbetaT
+            post.yfore[isave,h, ] = Fmat%*%GbetaT
+          }}
+        }
         if(computeDIC) post_loglike[isave] = sum(dnorm(matrix(Yna), mean = matrix(Btheta), sd = rep(sigma_et,m), log = TRUE), na.rm = TRUE)
 
         # And reset the skip counter:
@@ -230,7 +239,8 @@ fdlm = function(Y, tau, K = NULL,
   if(!is.na(match('sigma_w', mcmc_params))) mcmc_output$sigma_w = post.sigma_w
   if(!is.na(match('Wt', mcmc_params))) mcmc_output$Wt = post.Wt
   if(!is.na(match('Yhat', mcmc_params))) mcmc_output$Yhat = post.Yhat
-  if(!is.na(match('yfore', mcmc_params))) mcmc_output$yfore = post.yfore
+  #if(!is.null(h_step)) mcmc_output$yfore = post.yfore
+  if(!is.null(h_step)) mcmc_output$yfore = post.yfore
 
   if(computeDIC){
     # Log-likelihood evaluated at posterior means:
@@ -288,8 +298,8 @@ fdlm = function(Y, tau, K = NULL,
 #' \item "lambda_p" (parametric nonlinear parameter)
 #' \item "Wt" (evolution error variance)
 #' \item "Yhat" (fitted values)
-#' \item "yfore" (one-step forecast of Y)
 #' }
+#' @param h_step integer for h-step forecasting; if NULL, do not compute any forecasts
 #' @param evol_error_par string denoting the model for the parametric factor evolution;
 #' must be one of
 #' \itemize{
@@ -378,6 +388,7 @@ fdlm = function(Y, tau, K = NULL,
 sfdlm = function(Y, tau, f, K_np = NULL,
                  nsave = 1000, nburn = 1000, nskip = 10,
                  mcmc_params = list("beta", "fk"),
+                 h_step = NULL,
                  evol_error_par = "RW",
                  evol_error_nonpar = "DHS",
                  use_obs_SV = FALSE,
@@ -557,7 +568,7 @@ sfdlm = function(Y, tau, f, K_np = NULL,
   if(!is.na(match('G_alpha', mcmc_params))) post.G_alpha = array(NA, c(nsave, K_p, K_p))
   if(!is.na(match('mu_alpha', mcmc_params))) post.mu_alpha = array(NA, c(nsave, K_p))
   if(!is.na(match('Yhat', mcmc_params)) || computeDIC) post.Yhat = array(NA, c(nsave, T, m))
-  if(!is.na(match('yfore', mcmc_params))) post.yfore = array(NA, c(nsave, m))
+  if(!is.null(h_step)) post.yfore = array(NA, c(nsave, h_step, m))
   if(computeDIC) post_loglike = numeric(nsave)
 
   # Total number of MCMC simulations:
@@ -706,7 +717,15 @@ sfdlm = function(Y, tau, f, K_np = NULL,
         if(!is.na(match('mu_alpha', mcmc_params))) post.mu_alpha[isave,] = mu_alpha
         if(!is.na(match('Yhat', mcmc_params)) || computeDIC) post.Yhat[isave,,] = Yhat # + sigma_e*rnorm(length(Y))
         # Assumes random walk for FDLM (nonparametric) factors:
-        if(!is.na(match('yfore', mcmc_params))) post.yfore[isave,] = F_p%*%(mu_alpha + G_alpha%*%(Beta_p[T,] - mu_alpha)) + F_fdlm%*%Beta_fdlm[T,]
+        #if(!is.na(match('yfore', mcmc_params))) post.yfore[isave,] = F_p%*%(mu_alpha + G_alpha%*%(Beta_p[T,] - mu_alpha)) + F_fdlm%*%Beta_fdlm[T,]
+        if(!is.null(h_step)) {
+          GbetaT = G_alpha%*%(Beta_p[T,] - mu_alpha)
+          post.yfore[isave,1, ] = F_p%*%(mu_alpha + GbetaT) + F_fdlm%*%Beta_fdlm[T,]
+          if(h_step > 1){for(h in 2:h_step){
+            GbetaT = G_alpha%*%GbetaT
+            post.yfore[isave,h, ] = F_p%*%(mu_alpha + GbetaT) + F_fdlm%*%Beta_fdlm[T,]
+          }}
+        }
         if(computeDIC) post_loglike[isave] = sum(dnorm(matrix(Yna), mean = matrix(Yhat), sd = rep(sigma_et,m), log = TRUE), na.rm = TRUE)
 
         # And reset the skip counter:
@@ -725,7 +744,8 @@ sfdlm = function(Y, tau, f, K_np = NULL,
   if(!is.na(match('G_alpha', mcmc_params))) mcmc_output$G_alpha = post.G_alpha
   if(!is.na(match('mu_alpha', mcmc_params))) mcmc_output$mu_alpha = post.mu_alpha
   if(!is.na(match('Yhat', mcmc_params))) mcmc_output$Yhat = post.Yhat
-  if(!is.na(match('yfore', mcmc_params))) mcmc_output$yfore = post.yfore
+  #if(!is.na(match('yfore', mcmc_params))) mcmc_output$yfore = post.yfore
+  if(!is.null(h_step)) mcmc_output$yfore = post.yfore
 
   if(computeDIC){
     # Log-likelihood evaluated at posterior means:
@@ -774,8 +794,8 @@ sfdlm = function(Y, tau, f, K_np = NULL,
 #' \item "lambda_p" (parametric nonlinear parameter)
 #' \item "Wt" (evolution error variance)
 #' \item "Yhat" (fitted values)
-#' \item "yfore" (one-step forecast of Y)
 #' }
+#' @param h_step integer for h-step forecasting; if NULL, do not compute any forecasts
 #' @param evol_error_par string denoting the model for the parametric factor evolution;
 #' must be one of
 #' \itemize{
@@ -840,6 +860,7 @@ sfdlm = function(Y, tau, f, K_np = NULL,
 pfdlm = function(Y, tau, f,
                  nsave = 1000, nburn = 1000, nskip = 10,
                  mcmc_params = list("beta", "fk"),
+                 h_step = NULL,
                  evol_error_par = "RW",
                  use_obs_SV = FALSE,
                  orthogonalize = TRUE,
@@ -979,7 +1000,8 @@ pfdlm = function(Y, tau, f,
   if(!is.na(match('G_alpha', mcmc_params))) post.G_alpha = array(NA, c(nsave, K_p, K_p))
   if(!is.na(match('mu_alpha', mcmc_params))) post.mu_alpha = array(NA, c(nsave, K_p))
   if(!is.na(match('Yhat', mcmc_params)) || computeDIC) post.Yhat = array(NA, c(nsave, T, m))
-  if(!is.na(match('yfore', mcmc_params))) post.yfore = array(NA, c(nsave, m))
+  #if(!is.na(match('yfore', mcmc_params))) post.yfore = array(NA, c(nsave, m))
+  if(!is.null(h_step)) post.yfore = array(NA, c(nsave, h_step, m))
   if(computeDIC) post_loglike = numeric(nsave)
 
   # Total number of MCMC simulations:
@@ -1088,7 +1110,15 @@ pfdlm = function(Y, tau, f,
         if(!is.na(match('G_alpha', mcmc_params))) post.G_alpha[isave,,] = G_alpha
         if(!is.na(match('mu_alpha', mcmc_params))) post.mu_alpha[isave,] = mu_alpha
         if(!is.na(match('Yhat', mcmc_params)) || computeDIC) post.Yhat[isave,,] = Yhat # + sigma_e*rnorm(length(Y))
-        if(!is.na(match('yfore', mcmc_params))) post.yfore[isave,] = Fmat%*%(mu_alpha + G_alpha%*%(Beta[T,] - mu_alpha))
+        #if(!is.na(match('yfore', mcmc_params))) post.yfore[isave,] = F_p%*%(mu_alpha + G_alpha%*%(Beta_p[T,] - mu_alpha)) + F_fdlm%*%Beta_fdlm[T,]
+        if(!is.null(h_step)) {
+          GbetaT = G_alpha%*%(Beta_p[T,] - mu_alpha)
+          post.yfore[isave,1, ] = F_p%*%(mu_alpha + GbetaT) + F_fdlm%*%Beta_fdlm[T,]
+          if(h_step > 1){for(h in 2:h_step){
+            GbetaT = G_alpha%*%GbetaT
+            post.yfore[isave,h, ] = F_p%*%(mu_alpha + GbetaT) + F_fdlm%*%Beta_fdlm[T,]
+          }}
+        }
         if(computeDIC) post_loglike[isave] = sum(dnorm(matrix(Yna), mean = matrix(Yhat), sd = rep(sigma_et,m), log = TRUE), na.rm = TRUE)
 
         # And reset the skip counter:
@@ -1106,7 +1136,8 @@ pfdlm = function(Y, tau, f,
   if(!is.na(match('G_alpha', mcmc_params))) mcmc_output$G_alpha = post.G_alpha
   if(!is.na(match('mu_alpha', mcmc_params))) mcmc_output$mu_alpha = post.mu_alpha
   if(!is.na(match('Yhat', mcmc_params))) mcmc_output$Yhat = post.Yhat
-  if(!is.na(match('yfore', mcmc_params))) mcmc_output$yfore = post.yfore
+  #if(!is.na(match('yfore', mcmc_params))) mcmc_output$yfore = post.yfore
+  if(!is.null(h_step)) mcmc_output$yfore = post.yfore
 
   if(computeDIC){
     # Log-likelihood evaluated at posterior means:
@@ -1153,8 +1184,8 @@ pfdlm = function(Y, tau, f,
 #' \item "sigma_e" (observation error SD)
 #' \item "Wt" (evolution error variance)
 #' \item "Yhat" (fitted values)
-#' \item "yfore" (one-step forecast of Y)
 #' }
+#' @param h_step integer for h-step forecasting; if NULL, do not compute any forecasts
 #' @param useFastImpute logical; when TRUE, use imputation/projection scheme for the dynamic factors; otherwise use full state space model for factors (slower)
 #' @param use_obs_SV logical; when TRUE, include a stochastic volatility model
 #' for the observation error variance
@@ -1199,6 +1230,7 @@ pfdlm = function(Y, tau, f,
 fdlm0 = function(Y, tau, K = NULL,
                 nsave = 1000, nburn = 1000, nskip = 10,
                 mcmc_params = list("beta", "fk"),
+                h_step = NULL,
                 useFastImpute = TRUE,
                 use_obs_SV = FALSE,
                 includeBasisInnovation = TRUE,
@@ -1265,7 +1297,7 @@ fdlm0 = function(Y, tau, K = NULL,
   if(!is.na(match('sigma_w', mcmc_params))) post.sigma_w = array(NA, c(nsave, 1))
   if(!is.na(match('Wt', mcmc_params))) post.Wt = array(NA, c(nsave, K, K))
   if(!is.na(match('Yhat', mcmc_params)) || computeDIC) post.Yhat = array(NA, c(nsave, T, m))
-  if(!is.na(match('yfore', mcmc_params))) post.yfore = array(NA, c(nsave, m))
+  if(!is.null(h_step)) post.yfore = array(NA, c(nsave, m))
   if(computeDIC) post_loglike = numeric(nsave)
 
   # Total number of MCMC simulations:
@@ -1344,7 +1376,15 @@ fdlm0 = function(Y, tau, K = NULL,
         if(!is.na(match('sigma_w', mcmc_params))) post.sigma_w[isave,] = sigma_w
         if(!is.na(match('Wt', mcmc_params))) post.Wt[isave,,] = Wt[,,1]
         if(!is.na(match('Yhat', mcmc_params)) || computeDIC) post.Yhat[isave,,] = Btheta # + sigma_e*rnorm(length(Y))
-        if(!is.na(match('yfore', mcmc_params))) post.yfore[isave,] =Fmat%*%kfas_model$T[,,T]%*%Beta[T,]
+        #if(!is.na(match('yfore', mcmc_params))) post.yfore[isave,] =Fmat%*%kfas_model$T[,,T]%*%Beta[T,]
+        if(!is.null(h_step)) {
+          GbetaT = kfas_model$T[,,T]%*%Beta[T,]
+          post.yfore[isave,1, ] = Fmat%*%GbetaT
+          if(h_step > 1){for(h in 2:h_step){
+            GbetaT = kfas_model$T[,,T]%*%GbetaT
+            post.yfore[isave,h, ] = Fmat%*%GbetaT
+          }}
+        }
         if(computeDIC) post_loglike[isave] = sum(dnorm(matrix(Yna), mean = matrix(Btheta), sd = rep(sigma_et,m), log = TRUE), na.rm = TRUE)
 
         # And reset the skip counter:
@@ -1360,7 +1400,8 @@ fdlm0 = function(Y, tau, K = NULL,
   if(!is.na(match('sigma_w', mcmc_params))) mcmc_output$sigma_w = post.sigma_w
   if(!is.na(match('Wt', mcmc_params))) mcmc_output$Wt = post.Wt
   if(!is.na(match('Yhat', mcmc_params))) mcmc_output$Yhat = post.Yhat
-  if(!is.na(match('yfore', mcmc_params))) mcmc_output$yfore = post.yfore
+  #if(!is.na(match('yfore', mcmc_params))) mcmc_output$yfore = post.yfore
+  if(!is.null(h_step)) mcmc_output$yfore = post.yfore
 
   if(computeDIC){
     # Log-likelihood evaluated at posterior means:
