@@ -27,7 +27,7 @@ must be one or more of
 \itemize{
 \item "beta" (factors)
 \item "fk" (loading curves)
-\item "sigma_e" (observation error SD)
+\item "sigma_et" (observation error SD; possibly dynamic)
 \item "Wt" (evolution error variance)
 \item "Yhat" (fitted values)
 }}
@@ -66,6 +66,9 @@ data("US_Yields") # data("UK_Yields")
 # Restrict to dates since 2012:
 Y = Y[which(dates > as.Date("2012-01-01")),];
 dates = dates[which(dates > as.Date("2012-01-01"))] # subset the dates for easy reference
+
+Center and scale for numerical purposes:
+Y = scale(Y)
 
 # Run the MCMC:
 mcmc_output = fdlm0(Y, tau, K = 3,

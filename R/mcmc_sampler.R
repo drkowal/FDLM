@@ -20,7 +20,7 @@
 #' \itemize{
 #' \item "beta" (factors)
 #' \item "fk" (loading curves)
-#' \item "sigma_e" (observation error SD)
+#' \item "sigma_et" (observation error SD; possibly dynamic)
 #' \item "Wt" (evolution error variance)
 #' \item "Yhat" (fitted values)
 #' }
@@ -44,10 +44,13 @@
 #' Y = Y[which(dates > as.Date("2012-01-01")),];
 #' dates = dates[which(dates > as.Date("2012-01-01"))] # subset the dates for easy reference
 #'
+#' # Center and scale for numerical purposes:
+#' Y = scale(Y)
+#'
 #' # Run the MCMC:
 #' mcmc_output = fdlm(Y, tau, K = 3,
 #'                   nsave = 1000, nburn = 100, nskip = 2,
-#'                   mcmc_params = list("beta", "fk", "Yhat", "sigma_e"))
+#'                   mcmc_params = list("beta", "fk", "Yhat", "sigma_et"))
 #'
 #' # Plot the factors:
 #' plot_factors(mcmc_output$beta, dates)
@@ -74,9 +77,6 @@ fdlm = function(Y, tau, K = NULL,
                 use_obs_SV = FALSE,
                 includeBasisInnovation = TRUE,
                 computeDIC = TRUE){
-
-  # Check the model specifications to see if they make sense:
-  if(use_obs_SV) stop("SV not yet implemented")
 
   # Compute the dimensions:
   T = nrow(Y); m = ncol(Y)
@@ -109,8 +109,13 @@ fdlm = function(Y, tau, K = NULL,
   } else sigma_w = 0
 
   # Initialize the (time-dependent) observation error SD:
-  sigma_e = sd(Y - Btheta, na.rm=TRUE)
-  sigma_et = rep(sigma_e, T)
+  if(use_obs_SV){
+    svParams = initCommonSV(Y - Btheta)
+    sigma_et = svParams$sigma_et
+  } else {
+    sigma_e = sd(Y - Btheta, na.rm=TRUE)
+    sigma_et = rep(sigma_e, T)
+  }
 
   # Initialize the FLC smoothing parameters (conditional MLE):
   lambda = apply(Psi, 2, function(x) (ncol(splineInfo$Bmat) - 2)/crossprod(x, splineInfo$Omega)%*%x)
@@ -132,7 +137,7 @@ fdlm = function(Y, tau, K = NULL,
   mcmc_output = vector('list', length(mcmc_params)); names(mcmc_output) = mcmc_params
   if(!is.na(match('beta', mcmc_params))) post.beta = array(NA, c(nsave, T, K))
   if(!is.na(match('fk', mcmc_params))) post.fk = array(NA, c(nsave, m, K))
-  if(!is.na(match('sigma_e', mcmc_params)) || computeDIC) post.sigma_e = array(NA, c(nsave, 1))
+  if(!is.na(match('sigma_et', mcmc_params)) || computeDIC) post.sigma_et = array(NA, c(nsave, T))
   if(!is.na(match('sigma_w', mcmc_params))) post.sigma_w = array(NA, c(nsave, 1))
   if(!is.na(match('Wt', mcmc_params))) post.Wt = array(NA, c(nsave, K, K))
   if(!is.na(match('Yhat', mcmc_params)) || computeDIC) post.Yhat = array(NA, c(nsave, T, m))
@@ -151,14 +156,14 @@ fdlm = function(Y, tau, K = NULL,
     if(useFastImpute && any.missing){Y.samp = fdlm_impute(Yna, Btheta, sigma_et = sigma_et, Bmat = splineInfo$Bmat); Y = Y.samp$Y; BtY = Y.samp$BtY}
 
     # Sample the FLCs
-    #Psi = sampleFLC(BtY, Beta, Psi, BtB = diag(nrow(BtY)), splineInfo$Omega, lambda, sigmat2 = rep(sigma_e^2 + sigma_w^2, T))
+    #Psi = sampleFLC(BtY, Beta, Psi, BtB = diag(nrow(BtY)), splineInfo$Omega, lambda, sigmat2 = sigma_et^2 + sigma_w^2)
     Psi = fdlm_flc(BtY = BtY,
                    Beta  = Beta,
                    Psi = Psi,
                    BtB = diag(nrow(BtY)),
                    Omega = splineInfo$Omega,
                    lambda = lambda,
-                   sigmat2 = rep(sigma_e^2 + sigma_w^2, T))
+                   sigmat2 = sigma_et^2 + sigma_w^2)
     # And update the loading curves:
     Fmat = splineInfo$Bmat%*%Psi; if(useFastImpute) YF = crossprod(BtY, Psi)
 
@@ -167,7 +172,7 @@ fdlm = function(Y, tau, K = NULL,
 
     # Sample the factors (note: some of these arguments are unnecessary)
     Beta = fdlm_factor(Y = Y,
-                       sigma_et = rep(sqrt(sigma_e^2 + sigma_w^2), T),
+                       sigma_et = sqrt(sigma_et^2 + sigma_w^2),
                        Wt = Wt,
                        Fmat = Fmat,
                        YF = YF,
@@ -181,16 +186,29 @@ fdlm = function(Y, tau, K = NULL,
 
     # Sample the basis coefficients:
     if(includeBasisInnovation){
-      chQtheta = sqrt(sigma_e^-2 + sigma_w^-2) # Chol of diag (quadratic term) is just sqrt
-      linTheta = t(BtY)/sigma_e^2 + BetaPsit/sigma_w^2 # Linear term from the posterior
+
+      # Quad/linear construction a little faster w/o observation SV, but both work:
+      if(use_obs_SV){
+        Sigma_prec = matrix(rep(sigma_et^-2, ncol(theta)), nr = T)
+        chQtheta = sqrt(Sigma_prec + sigma_w^-2) # Chol of diag (quadratic term) is just sqrt
+        linTheta = t(BtY)*Sigma_prec + BetaPsit/sigma_w^2 # Linear term from the posterior
+      } else {
+        chQtheta = sqrt(sigma_e^-2 + sigma_w^-2) # Chol of diag (quadratic term) is just sqrt
+        linTheta = t(BtY)/sigma_e^2 + BetaPsit/sigma_w^2 # Linear term from the posterior
+      }
       theta = linTheta/chQtheta^2 + 1/chQtheta*rnorm(length(theta))
       Btheta = tcrossprod(theta,splineInfo$Bmat)
       sigma_w = 1/sqrt(rgamma(n = 1, shape = 0.001 + length(theta)/2, rate =0.001 + sum((theta - BetaPsit)^2)/2))
     } else {theta = BetaPsit; sigma_w = 0; Btheta = tcrossprod(theta,splineInfo$Bmat)}
 
-    # Sample the observation error variance (just assume Jeffreys prior)
-    sigma_e = 1/sqrt(rgamma(n = 1, shape = sum(!is.na(Y))/2, rate = sum((Y - Btheta)^2, na.rm=TRUE)/2))
-    sigma_et = rep(sigma_e, T)
+    # Sample the observation error variance
+    if(use_obs_SV){
+      svParams = sampleCommonSV(Y - Btheta, svParams)
+      sigma_et = svParams$sigma_et
+    } else {
+      sigma_e = 1/sqrt(rgamma(n = 1, shape = sum(!is.na(Y))/2, rate = sum((Y - Btheta)^2, na.rm=TRUE)/2))
+      sigma_et = rep(sigma_e, T)
+    }
 
     # Sample the evolution error variance, assuming random walk model:
     Wt[1:K, 1:K,] = sample_Wt(resBeta = diff(Beta), useDiagonal=FALSE)
@@ -211,7 +229,7 @@ fdlm = function(Y, tau, K = NULL,
         # Save the MCMC samples:
         if(!is.na(match('beta', mcmc_params))) post.beta[isave,,] = Beta
         if(!is.na(match('fk', mcmc_params))) post.fk[isave,,] = Fmat
-        if(!is.na(match('sigma_e', mcmc_params)) || computeDIC) post.sigma_e[isave,] = sigma_e
+        if(!is.na(match('sigma_et', mcmc_params)) || computeDIC) post.sigma_et[isave,] = sigma_et
         if(!is.na(match('sigma_w', mcmc_params))) post.sigma_w[isave,] = sigma_w
         if(!is.na(match('Wt', mcmc_params))) post.Wt[isave,,] = Wt[,,1]
         if(!is.na(match('Yhat', mcmc_params)) || computeDIC) post.Yhat[isave,,] = Btheta # + sigma_e*rnorm(length(Y))
@@ -235,18 +253,17 @@ fdlm = function(Y, tau, K = NULL,
 
   if(!is.na(match('beta', mcmc_params))) mcmc_output$beta = post.beta
   if(!is.na(match('fk', mcmc_params))) mcmc_output$fk = post.fk
-  if(!is.na(match('sigma_e', mcmc_params))) mcmc_output$sigma_e = post.sigma_e
+  if(!is.na(match('sigma_et', mcmc_params))) mcmc_output$sigma_et = post.sigma_et
   if(!is.na(match('sigma_w', mcmc_params))) mcmc_output$sigma_w = post.sigma_w
   if(!is.na(match('Wt', mcmc_params))) mcmc_output$Wt = post.Wt
   if(!is.na(match('Yhat', mcmc_params))) mcmc_output$Yhat = post.Yhat
-  #if(!is.null(h_step)) mcmc_output$yfore = post.yfore
   if(!is.null(h_step)) mcmc_output$yfore = post.yfore
 
   if(computeDIC){
     # Log-likelihood evaluated at posterior means:
     loglike_hat = sum(dnorm(matrix(Yna),
                             mean = matrix(colMeans(post.Yhat)),
-                            sd = colMeans(post.sigma_e),
+                            sd = rep(colMeans(post.sigma_et), m),
                             log = TRUE), na.rm=TRUE)
 
     # Effective number of parameters (Note: two options)
@@ -294,7 +311,7 @@ fdlm = function(Y, tau, K = NULL,
 #' \itemize{
 #' \item "beta" (factors)
 #' \item "fk" (loading curves)
-#' \item "sigma_e" (observation error SD)
+#' \item "sigma_et" (observation error SD; possibly dynamic)
 #' \item "lambda_p" (parametric nonlinear parameter)
 #' \item "Wt" (evolution error variance)
 #' \item "Yhat" (fitted values)
@@ -349,6 +366,9 @@ fdlm = function(Y, tau, K = NULL,
 #' Y = Y[which(dates > as.Date("2012-01-01")),];
 #' dates = dates[which(dates > as.Date("2012-01-01"))] # subset the dates for easy reference
 #'
+#' # Center and scale for numerical purposes:
+#' Y = scale(Y)
+#'
 #' f = function(tau, lambda_p) f_ns(tau, lambda_p)[,1:2]
 #' mcmc_output = sfdlm(Y, tau, f, K_np = 2,
 #'                    nsave = 1000, nburn = 100, nskip = 2,
@@ -395,9 +415,6 @@ sfdlm = function(Y, tau, f, K_np = NULL,
                  includeBasisInnovation = TRUE,
                  log_prior_lambda_p = NULL,
                  computeDIC = TRUE){
-
-  # Check the model specifications to see if they make sense:
-  if(use_obs_SV) stop("SV not yet implemented")
 
   # Convert to upper case, then check for matches to existing models:
   evol_error_par = toupper(evol_error_par); evol_error_nonpar = toupper(evol_error_nonpar)
@@ -484,8 +501,13 @@ sfdlm = function(Y, tau, f, K_np = NULL,
   } else sigma_w = 0
 
   # Initialize the (time-dependent) observation error SD:
-  sigma_e = sd(Y - Yhat, na.rm=TRUE)
-  sigma_et = rep(sigma_e, T)
+  if(use_obs_SV){
+    svParams = initCommonSV(Y - Yhat)
+    sigma_et = svParams$sigma_et
+  } else {
+    sigma_e = sd(Y - Yhat, na.rm=TRUE)
+    sigma_et = rep(sigma_e, T)
+  }
 
   # Initialize the FLC smoothing parameters (conditional MLE):
   lambda = apply(Psi, 2, function(x) (ncol(splineInfo$Bmat) - 2)/crossprod(x, splineInfo$Omega)%*%x)
@@ -561,7 +583,7 @@ sfdlm = function(Y, tau, f, K_np = NULL,
   mcmc_output = vector('list', length(mcmc_params)); names(mcmc_output) = mcmc_params
   if(!is.na(match('beta', mcmc_params))) post.beta = array(NA, c(nsave, T, K))
   if(!is.na(match('fk', mcmc_params))) post.fk = array(NA, c(nsave, m, K))
-  if(!is.na(match('sigma_e', mcmc_params)) || computeDIC) post.sigma_e = array(NA, c(nsave, 1))
+  if(!is.na(match('sigma_et', mcmc_params)) || computeDIC) post.sigma_et = array(NA, c(nsave, T))
   if(!is.na(match('lambda_p', mcmc_params))) post.lambda_p = array(NA, c(nsave, 1))
   if(!is.na(match('sigma_w', mcmc_params))) post.sigma_w = array(NA, c(nsave, 1))
   if(!is.na(match('Wt', mcmc_params))) post.Wt = array(NA, c(nsave, K, K))
@@ -603,7 +625,7 @@ sfdlm = function(Y, tau, f, K_np = NULL,
                    Omega = splineInfo$Omega,
                    BtCon = crossprod(splineInfo$Bmat, F_p),
                    lambda = lambda,
-                   sigmat2 = rep(sigma_e^2 + sigma_w^2, T))
+                   sigmat2 = sigma_et^2 + sigma_w^2)
     # And compute the loading curves:
     F_fdlm = splineInfo$Bmat%*%Psi
     Fmat[,1:K_p] = F_p; Fmat[,-(1:K_p)] = F_fdlm
@@ -615,14 +637,14 @@ sfdlm = function(Y, tau, f, K_np = NULL,
     # Note: the arguments may or may not be used, depending on includeBasisInnovation (logical)
     BtFp = crossprod(splineInfo$Bmat, F_p)
     Beta = mu_all + fdlm_factor(Y = t(BtY) - tcrossprod(mu_all[,1:K_p], BtFp),
-                       sigma_et = rep(sqrt(sigma_e^2 + sigma_w^2), T),
-                       Wt = Wt,
-                       Fmat = cbind(BtFp, Psi),
-                       YF = Y%*%Fmat - mu_all,
-                       Gt = G_mu,
-                       W0 = W0,
-                       kfas_model = kfas_model,
-                       useFastImpute = !includeBasisInnovation)
+                                sigma_et = sqrt(sigma_et^2 + sigma_w^2),
+                                Wt = Wt,
+                                Fmat = cbind(BtFp, Psi),
+                                YF = Y%*%Fmat - mu_all,
+                                Gt = G_mu,
+                                W0 = W0,
+                                kfas_model = kfas_model,
+                                useFastImpute = !includeBasisInnovation)
     # And store the components:
     Beta_p = as.matrix(Beta[,1:K_p]); Beta_fdlm = as.matrix(Beta[,-(1:K_p)])
 
@@ -635,8 +657,16 @@ sfdlm = function(Y, tau, f, K_np = NULL,
 
     # Sample the basis coefficients:
     if(includeBasisInnovation){
-      chQtheta = sqrt(sigma_e^-2 + sigma_w^-2) # Chol of diag (quadratic term) is just sqrt
-      linTheta = t(BtY - BtY_p)/sigma_e^2 + BetaPsit/sigma_w^2 # Linear term from the posterior
+
+      # Quad/linear construction a little faster w/o observation SV, but both work:
+      if(use_obs_SV){
+        Sigma_prec = matrix(rep(sigma_et^-2, ncol(theta)), nr = T)
+        chQtheta = sqrt(Sigma_prec + sigma_w^-2) # Chol of diag (quadratic term) is just sqrt
+        linTheta = t(BtY - BtY_p)*Sigma_prec + BetaPsit/sigma_w^2 # Linear term from the posterior
+      } else {
+        chQtheta = sqrt(sigma_e^-2 + sigma_w^-2) # Chol of diag (quadratic term) is just sqrt
+        linTheta = t(BtY - BtY_p)/sigma_e^2 + BetaPsit/sigma_w^2 # Linear term from the posterior
+      }
       theta = linTheta/chQtheta^2 + 1/chQtheta*rnorm(length(theta))
       Btheta = tcrossprod(theta,splineInfo$Bmat)
       sigma_w = 1/sqrt(rgamma(n = 1, shape = 0.001 + length(theta)/2, rate =0.001 + sum((theta - BetaPsit)^2)/2))
@@ -645,9 +675,14 @@ sfdlm = function(Y, tau, f, K_np = NULL,
 
     Yhat = Yhat_p + Btheta
 
-    # Sample the observation error variance (just assume Jeffreys prior)
-    sigma_e = 1/sqrt(rgamma(n = 1, shape = sum(!is.na(Y))/2, rate = sum((Y - Yhat)^2, na.rm=TRUE)/2))
-    sigma_et = rep(sigma_e, T)
+    # Sample the observation error variance
+    if(use_obs_SV){
+      svParams = sampleCommonSV(Y - Yhat, svParams)
+      sigma_et = svParams$sigma_et
+    } else {
+      sigma_e = 1/sqrt(rgamma(n = 1, shape = sum(!is.na(Y))/2, rate = sum((Y - Yhat)^2, na.rm=TRUE)/2))
+      sigma_et = rep(sigma_e, T)
+    }
 
     # Sample the evolution parameters
     # Parametric terms:
@@ -709,7 +744,7 @@ sfdlm = function(Y, tau, f, K_np = NULL,
         # Save the MCMC samples:
         if(!is.na(match('beta', mcmc_params))) post.beta[isave,,] = Beta
         if(!is.na(match('fk', mcmc_params))) post.fk[isave,,] = Fmat
-        if(!is.na(match('sigma_e', mcmc_params)) || computeDIC) post.sigma_e[isave,] = sigma_e
+        if(!is.na(match('sigma_et', mcmc_params)) || computeDIC) post.sigma_et[isave,] = sigma_et
         if(!is.na(match('lambda_p', mcmc_params))) post.lambda_p[isave,] = lambda_p
         if(!is.na(match('sigma_w', mcmc_params))) post.sigma_w[isave,] = sigma_w
         if(!is.na(match('Wt', mcmc_params))) post.Wt[isave,,] = Wt[,,1]
@@ -737,7 +772,7 @@ sfdlm = function(Y, tau, f, K_np = NULL,
 
   if(!is.na(match('beta', mcmc_params))) mcmc_output$beta = post.beta
   if(!is.na(match('fk', mcmc_params))) mcmc_output$fk = post.fk
-  if(!is.na(match('sigma_e', mcmc_params))) mcmc_output$sigma_e = post.sigma_e
+  if(!is.na(match('sigma_et', mcmc_params))) mcmc_output$sigma_et = post.sigma_et
   if(!is.na(match('lambda_p', mcmc_params))) mcmc_output$lambda_p = post.lambda_p
   if(!is.na(match('sigma_w', mcmc_params))) mcmc_output$sigma_w = post.sigma_w
   if(!is.na(match('Wt', mcmc_params))) mcmc_output$Wt = post.Wt
@@ -751,7 +786,7 @@ sfdlm = function(Y, tau, f, K_np = NULL,
     # Log-likelihood evaluated at posterior means:
     loglike_hat = sum(dnorm(matrix(Yna),
                             mean = matrix(colMeans(post.Yhat)),
-                            sd = colMeans(post.sigma_e),
+                            sd = rep(colMeans(post.sigma_et), m),
                             log = TRUE), na.rm=TRUE)
 
     # Effective number of parameters (Note: two options)
@@ -790,7 +825,7 @@ sfdlm = function(Y, tau, f, K_np = NULL,
 #' \itemize{
 #' \item "beta" (factors)
 #' \item "fk" (loading curves)
-#' \item "sigma_e" (observation error SD)
+#' \item "sigma_et" (observation error SD; possibly dynamic)
 #' \item "lambda_p" (parametric nonlinear parameter)
 #' \item "Wt" (evolution error variance)
 #' \item "Yhat" (fitted values)
@@ -834,6 +869,9 @@ sfdlm = function(Y, tau, f, K_np = NULL,
 #' Y = Y[which(dates > as.Date("2012-01-01")),];
 #' dates = dates[which(dates > as.Date("2012-01-01"))] # subset the dates for easy reference
 #'
+#' # Center and scale for numerical purposes:
+#' Y = scale(Y)
+#'
 #' f = function(tau, lambda_p) f_ns(tau, lambda_p)[,1:2]
 #' mcmc_output = pfdlm(Y, tau, f,
 #'                    nsave = 1000, nburn = 100, nskip = 2,
@@ -866,9 +904,6 @@ pfdlm = function(Y, tau, f,
                  orthogonalize = TRUE,
                  log_prior_lambda_p = NULL,
                  computeDIC = TRUE){
-
-  # Check the model specifications to see if they make sense:
-  if(use_obs_SV) stop("SV not yet implemented")
 
   # Convert to upper case, then check for matches to existing models:
   evol_error_par = toupper(evol_error_par);
@@ -926,8 +961,13 @@ pfdlm = function(Y, tau, f,
   Y = Y.samp$Y; BtY = Y.samp$BtY
 
   # Initialize the (time-dependent) observation error SD:
-  sigma_e = sd(Y - Yhat, na.rm=TRUE)
-  sigma_et = rep(sigma_e, T)
+  if(use_obs_SV){
+    svParams = initCommonSV(Y - Yhat)
+    sigma_et = svParams$sigma_et
+  } else {
+    sigma_e = sd(Y - Yhat, na.rm=TRUE)
+    sigma_et = rep(sigma_e, T)
+  }
 
   # Initialize the KFAS model:
   if(!orthogonalize){
@@ -994,7 +1034,7 @@ pfdlm = function(Y, tau, f,
   mcmc_output = vector('list', length(mcmc_params)); names(mcmc_output) = mcmc_params
   if(!is.na(match('beta', mcmc_params))) post.beta = array(NA, c(nsave, T, K))
   if(!is.na(match('fk', mcmc_params))) post.fk = array(NA, c(nsave, m, K))
-  if(!is.na(match('sigma_e', mcmc_params)) || computeDIC) post.sigma_e = array(NA, c(nsave, 1))
+  if(!is.na(match('sigma_et', mcmc_params)) || computeDIC) post.sigma_et = array(NA, c(nsave, T))
   if(!is.na(match('lambda_p', mcmc_params))) post.lambda_p = array(NA, c(nsave, 1))
   if(!is.na(match('Wt', mcmc_params))) post.Wt = array(NA, c(nsave, K, K))
   if(!is.na(match('G_alpha', mcmc_params))) post.G_alpha = array(NA, c(nsave, K_p, K_p))
@@ -1033,7 +1073,7 @@ pfdlm = function(Y, tau, f,
     # Note: the arguments may or may not be used, depending on includeBasisInnovation (logical)
     BtFp = crossprod(splineInfo$Bmat, F_p)
     Beta = mu_all + fdlm_factor(Y = t(BtY) - tcrossprod(mu_all[,1:K_p], BtFp),
-                                sigma_et = rep(sigma_e, T),
+                                sigma_et = sigma_et,
                                 Wt = Wt,
                                 Fmat = BtFp,
                                 YF = Y%*%Fmat - mu_all,
@@ -1050,9 +1090,14 @@ pfdlm = function(Y, tau, f,
 
     Yhat = Yhat_p
 
-    # Sample the observation error variance (just assume Jeffreys prior)
-    sigma_e = 1/sqrt(rgamma(n = 1, shape = sum(!is.na(Y))/2, rate = sum((Y - Yhat)^2, na.rm=TRUE)/2))
-    sigma_et = rep(sigma_e, T)
+    # Sample the observation error variance
+    if(use_obs_SV){
+      svParams = sampleCommonSV(Y - Yhat, svParams)
+      sigma_et = svParams$sigma_et
+    } else {
+      sigma_e = 1/sqrt(rgamma(n = 1, shape = sum(!is.na(Y))/2, rate = sum((Y - Yhat)^2, na.rm=TRUE)/2))
+      sigma_et = rep(sigma_e, T)
+    }
 
     # Sample the evolution parameters
     # Parametric terms:
@@ -1104,7 +1149,7 @@ pfdlm = function(Y, tau, f,
         # Save the MCMC samples:
         if(!is.na(match('beta', mcmc_params))) post.beta[isave,,] = Beta
         if(!is.na(match('fk', mcmc_params))) post.fk[isave,,] = Fmat
-        if(!is.na(match('sigma_e', mcmc_params)) || computeDIC) post.sigma_e[isave,] = sigma_e
+        if(!is.na(match('sigma_et', mcmc_params)) || computeDIC) post.sigma_et[isave,] = sigma_et
         if(!is.na(match('lambda_p', mcmc_params))) post.lambda_p[isave,] = lambda_p
         if(!is.na(match('Wt', mcmc_params))) post.Wt[isave,,] = Wt[,,1]
         if(!is.na(match('G_alpha', mcmc_params))) post.G_alpha[isave,,] = G_alpha
@@ -1130,7 +1175,7 @@ pfdlm = function(Y, tau, f,
 
   if(!is.na(match('beta', mcmc_params))) mcmc_output$beta = post.beta
   if(!is.na(match('fk', mcmc_params))) mcmc_output$fk = post.fk
-  if(!is.na(match('sigma_e', mcmc_params))) mcmc_output$sigma_e = post.sigma_e
+  if(!is.na(match('sigma_et', mcmc_params))) mcmc_output$sigma_et = post.sigma_et
   if(!is.na(match('lambda_p', mcmc_params))) mcmc_output$lambda_p = post.lambda_p
   if(!is.na(match('Wt', mcmc_params))) mcmc_output$Wt = post.Wt
   if(!is.na(match('G_alpha', mcmc_params))) mcmc_output$G_alpha = post.G_alpha
@@ -1143,7 +1188,7 @@ pfdlm = function(Y, tau, f,
     # Log-likelihood evaluated at posterior means:
     loglike_hat = sum(dnorm(matrix(Yna),
                             mean = matrix(colMeans(post.Yhat)),
-                            sd = colMeans(post.sigma_e),
+                            sd = rep(colMeans(post.sigma_et), m),
                             log = TRUE), na.rm=TRUE)
 
     # Effective number of parameters (Note: two options)
@@ -1181,7 +1226,7 @@ pfdlm = function(Y, tau, f,
 #' \itemize{
 #' \item "beta" (factors)
 #' \item "fk" (loading curves)
-#' \item "sigma_e" (observation error SD)
+#' \item "sigma_et" (observation error SD; possibly dynamic)
 #' \item "Wt" (evolution error variance)
 #' \item "Yhat" (fitted values)
 #' }
@@ -1204,6 +1249,9 @@ pfdlm = function(Y, tau, f,
 #' # Restrict to dates since 2012:
 #' Y = Y[which(dates > as.Date("2012-01-01")),];
 #' dates = dates[which(dates > as.Date("2012-01-01"))] # subset the dates for easy reference
+#'
+#' Center and scale for numerical purposes:
+#' Y = scale(Y)
 #'
 #' # Run the MCMC:
 #' mcmc_output = fdlm0(Y, tau, K = 3,
@@ -1236,9 +1284,6 @@ fdlm0 = function(Y, tau, K = NULL,
                 includeBasisInnovation = TRUE,
                 computeDIC = TRUE){
 
-  # Check the model specifications to see if they make sense:
-  if(use_obs_SV) stop("SV not yet implemented")
-
   # Compute the dimensions:
   T = nrow(Y); m = ncol(Y)
 
@@ -1270,8 +1315,13 @@ fdlm0 = function(Y, tau, K = NULL,
   } else sigma_w = 0
 
   # Initialize the (time-dependent) observation error SD:
-  sigma_e = sd(Y - Btheta, na.rm=TRUE)
-  sigma_et = rep(sigma_e, T)
+  if(use_obs_SV){
+    svParams = initCommonSV(Y - Btheta)
+    sigma_et = svParams$sigma_et
+  } else {
+    sigma_e = sd(Y - Btheta, na.rm=TRUE)
+    sigma_et = rep(sigma_e, T)
+  }
 
   # Initialize the FLC smoothing parameters (conditional MLE):
   lambda = apply(Psi, 2, function(x) (ncol(splineInfo$Bmat) - 2)/crossprod(x, splineInfo$Omega)%*%x)
@@ -1293,7 +1343,7 @@ fdlm0 = function(Y, tau, K = NULL,
   mcmc_output = vector('list', length(mcmc_params)); names(mcmc_output) = mcmc_params
   if(!is.na(match('beta', mcmc_params))) post.beta = array(NA, c(nsave, T, K))
   if(!is.na(match('fk', mcmc_params))) post.fk = array(NA, c(nsave, m, K))
-  if(!is.na(match('sigma_e', mcmc_params)) || computeDIC) post.sigma_e = array(NA, c(nsave, 1))
+  if(!is.na(match('sigma_et', mcmc_params)) || computeDIC) post.sigma_et = array(NA, c(nsave, T))
   if(!is.na(match('sigma_w', mcmc_params))) post.sigma_w = array(NA, c(nsave, 1))
   if(!is.na(match('Wt', mcmc_params))) post.Wt = array(NA, c(nsave, K, K))
   if(!is.na(match('Yhat', mcmc_params)) || computeDIC) post.Yhat = array(NA, c(nsave, T, m))
@@ -1319,7 +1369,7 @@ fdlm0 = function(Y, tau, K = NULL,
                    BtB = diag(nrow(BtY)),
                    Omega = splineInfo$Omega,
                    lambda = lambda,
-                   sigmat2 = rep(sigma_e^2 + sigma_w^2, T))
+                   sigmat2 = sigma_et^2 + sigma_w^2)
     # And update the loading curves:
     Fmat = splineInfo$Bmat%*%Psi; if(useFastImpute) YF = crossprod(BtY, Psi)
 
@@ -1328,7 +1378,7 @@ fdlm0 = function(Y, tau, K = NULL,
 
     # Sample the factors (note: some of these arguments are unnecessary)
     Beta = fdlm_factor(Y = Y,
-                       sigma_et = rep(sqrt(sigma_e^2 + sigma_w^2), T),
+                       sigma_et = sqrt(sigma_et^2 + sigma_w^2),
                        Wt = Wt,
                        Fmat = Fmat,
                        YF = YF,
@@ -1342,16 +1392,29 @@ fdlm0 = function(Y, tau, K = NULL,
 
     # Sample the basis coefficients:
     if(includeBasisInnovation){
-      chQtheta = sqrt(sigma_e^-2 + sigma_w^-2) # Chol of diag (quadratic term) is just sqrt
-      linTheta = t(BtY)/sigma_e^2 + BetaPsit/sigma_w^2 # Linear term from the posterior
+
+      # Quad/linear construction a little faster w/o observation SV, but both work:
+      if(use_obs_SV){
+        Sigma_prec = matrix(rep(sigma_et^-2, ncol(theta)), nr = T)
+        chQtheta = sqrt(Sigma_prec + sigma_w^-2) # Chol of diag (quadratic term) is just sqrt
+        linTheta = t(BtY)*Sigma_prec + BetaPsit/sigma_w^2 # Linear term from the posterior
+      } else {
+        chQtheta = sqrt(sigma_e^-2 + sigma_w^-2) # Chol of diag (quadratic term) is just sqrt
+        linTheta = t(BtY)/sigma_e^2 + BetaPsit/sigma_w^2 # Linear term from the posterior
+      }
       theta = linTheta/chQtheta^2 + 1/chQtheta*rnorm(length(theta))
       Btheta = tcrossprod(theta,splineInfo$Bmat)
       sigma_w = 1/sqrt(rgamma(n = 1, shape = 0.001 + length(theta)/2, rate =0.001 + sum((theta - BetaPsit)^2)/2))
     } else {theta = BetaPsit; sigma_w = 0; Btheta = tcrossprod(theta,splineInfo$Bmat)}
 
-    # Sample the observation error variance (just assume Jeffreys prior)
-    sigma_e = 1/sqrt(rgamma(n = 1, shape = sum(!is.na(Y))/2, rate = sum((Y - Btheta)^2, na.rm=TRUE)/2))
-    sigma_et = rep(sigma_e, T)
+    # Sample the observation error variance
+    if(use_obs_SV){
+      svParams = sampleCommonSV(Y - Btheta, svParams)
+      sigma_et = svParams$sigma_et
+    } else {
+      sigma_e = 1/sqrt(rgamma(n = 1, shape = sum(!is.na(Y))/2, rate = sum((Y - Btheta)^2, na.rm=TRUE)/2))
+      sigma_et = rep(sigma_e, T)
+    }
 
     # Sample the evolution error variance, assuming random walk model:
     Wt[1:K, 1:K,] = sample_Wt(resBeta = diff(Beta), useDiagonal=FALSE)
@@ -1372,7 +1435,7 @@ fdlm0 = function(Y, tau, K = NULL,
         # Save the MCMC samples:
         if(!is.na(match('beta', mcmc_params))) post.beta[isave,,] = Beta
         if(!is.na(match('fk', mcmc_params))) post.fk[isave,,] = Fmat
-        if(!is.na(match('sigma_e', mcmc_params)) || computeDIC) post.sigma_e[isave,] = sigma_e
+        if(!is.na(match('sigma_et', mcmc_params)) || computeDIC) post.sigma_et[isave,] = sigma_et
         if(!is.na(match('sigma_w', mcmc_params))) post.sigma_w[isave,] = sigma_w
         if(!is.na(match('Wt', mcmc_params))) post.Wt[isave,,] = Wt[,,1]
         if(!is.na(match('Yhat', mcmc_params)) || computeDIC) post.Yhat[isave,,] = Btheta # + sigma_e*rnorm(length(Y))
@@ -1396,7 +1459,7 @@ fdlm0 = function(Y, tau, K = NULL,
 
   if(!is.na(match('beta', mcmc_params))) mcmc_output$beta = post.beta
   if(!is.na(match('fk', mcmc_params))) mcmc_output$fk = post.fk
-  if(!is.na(match('sigma_e', mcmc_params))) mcmc_output$sigma_e = post.sigma_e
+  if(!is.na(match('sigma_et', mcmc_params))) mcmc_output$sigma_et = post.sigma_et
   if(!is.na(match('sigma_w', mcmc_params))) mcmc_output$sigma_w = post.sigma_w
   if(!is.na(match('Wt', mcmc_params))) mcmc_output$Wt = post.Wt
   if(!is.na(match('Yhat', mcmc_params))) mcmc_output$Yhat = post.Yhat
@@ -1407,7 +1470,7 @@ fdlm0 = function(Y, tau, K = NULL,
     # Log-likelihood evaluated at posterior means:
     loglike_hat = sum(dnorm(matrix(Yna),
                             mean = matrix(colMeans(post.Yhat)),
-                            sd = colMeans(post.sigma_e),
+                            sd = rep(colMeans(post.sigma_et), m),
                             log = TRUE), na.rm=TRUE)
 
     # Effective number of parameters (Note: two options)
