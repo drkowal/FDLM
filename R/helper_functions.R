@@ -49,6 +49,62 @@ fdlm_init = function(Y, tau, K){
   list(Beta = Beta0, Psi = Psi0, splineInfo = splineInfo, Y0 = Y0)
 }
 #####################################################################################################
+# Initialize the factors and FLCs using a SVD
+  # Inputs: Y, tau, K (see fdlm() for details)
+# Returns a list of the main parameters in the model:
+# Beta, d, splineInfo (spline basis matrices), and the imputed data matrix Y0
+#####################################################################################################
+fdlm_init_d = function(Y, tau, K){
+
+  # Convert to matrix, if necessary:
+  tau = as.matrix(tau)
+
+  # Rescale observation points to [0,1]
+  tau01 = apply(tau, 2, function(x) (x - min(x))/(max(x) - min(x)))
+
+  # And the dimensions:
+  T = nrow(Y); m = ncol(Y); d = ncol(tau)
+
+  # Compute basic quantities for the FLC splines:
+  if(d == 1){
+    splineInfo = getSplineInfo(as.numeric(tau01), m_avg = floor(mean(rowSums(!is.na(Y)))), orthonormal = TRUE)
+  } else splineInfo = getSplineInfo_d(tau01, num.knots = NULL, orthonormalize = TRUE)
+
+  # For initialization: impute (this is a bit crude)
+  Y0 = matrix(NA, nr = T, nc = m) # Storage for imputed initialization data matrix
+  allMissing.t = (rowSums(!is.na(Y))==0)   # Boolean indicator of times at which no points are observed
+  # First: for all times at which we observe a curve, impute the full curve (across tau)
+  #Y0[!allMissing.t,] = t(apply(Y[!allMissing.t,], 1, function(x) splinefun(tau01, x, method='natural')(tau01)))
+  Y0[!allMissing.t,] = t(apply(Y[!allMissing.t,], 1, function(x) splinefun(seq(0, 1, length.out = m), x, method='natural')(seq(0, 1, length.out = m))))
+  # Second: impute any times for which no curve is observed (i.e., impute across time)
+  Y0 = apply(Y0, 2, function(x){splinefun(1:T, x, method='natural')(1:T)})
+
+  # Compute SVD of the (completed) data matrix:
+  YB0 = Y0%*%splineInfo$Bmat%*%chol2inv(chol(splineInfo$BtB))
+  singVal = svd(YB0)
+
+  # If K is unspecified, select based on cpv
+  if(is.null(K)){
+    # Cumulative sums of the s^2 proportions (More reasonable when Y has been centered)
+    cpv = cumsum(singVal$d^2/sum(singVal$d^2))
+    K = max(2, which(cpv >= 0.99)[1])
+  }
+
+  # Basis coefficients of FLCs:
+  Psi0 = as.matrix(singVal$v[,1:K])
+
+  # Initial FLCs:
+  F0 = splineInfo$Bmat%*%Psi0
+
+  # Factors:
+  Beta0 = as.matrix((singVal$u%*%diag(singVal$d))[,1:K])
+
+  # Initialize all curves to have positive sums (especially nice for the intercept)
+  negSumk = which(colSums(F0) < 0); Psi0[,negSumk] = -Psi0[,negSumk]; Beta0[,negSumk] = -Beta0[,negSumk]
+
+  list(Beta = Beta0, Psi = Psi0, splineInfo = splineInfo, Y0 = Y0)
+}
+#####################################################################################################
 # Initialize the parameters in the Dynamic Nelson-Siegel Model
 #
 dns_init = function(Y, tau, orthogonalize = TRUE){
@@ -399,6 +455,94 @@ getSplineInfo = function(tau01, m_avg = NULL, orthonormal = TRUE){
   # Return the matrix, the penalty, and the cross product (of the basis)
   list(Bmat = Bmat, Omega = Omega, BtB = BtB)
 }
+#' Construct the spline basis and penalty matrices
+#'
+#' Given input points in \code{d} dimensions, construct a low-rank thin plate spline basis matrix
+#' and penalty matrix.
+#'
+#' @param tau \code{m x d} matrix of coordinates, where \code{m} is the number of observation points and \code{d} is the dimension
+#' @param num.knots the number of knots to include
+#' @param orthonormalize logical; if TRUE, orthornomalize the basis matrix
+#'
+#' @note The knot locations are selected using a space-filling algorithm.
+#'
+#' @import fields
+getSplineInfo_d = function(tau, num.knots = NULL, orthonormalize = TRUE){
+
+  # Just in case:
+  tau = as.matrix(tau)
+
+  # Number of observation points
+  m = nrow(tau)
+
+  # Dimension:
+  d = ncol(tau)
+
+  # Order of derivative in penalty:
+  m.deriv = 2
+
+  # This is the linear component
+  X = cbind(1, tau)
+
+  # Select the number and location of knots
+  if(is.null(num.knots)) num.knots = max(20, min(floor(m/4), 150))
+
+  if(num.knots < m){
+    #knots0 = cover.design(tau, num.knots); knots = NULL; for(j in 1:d) knots = cbind(knots, knots0[,j])
+    knots =  cover.design(tau, num.knots)$design
+  } else knots = tau
+
+  # For the penalty matrix, need to compute distances between obs. points and knots
+  dist.mat <- matrix(0, num.knots, num.knots); dist.mat[lower.tri(dist.mat)] <- dist(knots); dist.mat <- dist.mat + t(dist.mat)
+  if(d%%2 == 0){
+    # Even dim:
+    Omega = dist.mat^(2*m.deriv - d)*log(dist.mat)
+  } else {
+    # Odd dim:
+    Omega = dist.mat^(2*m.deriv - d)
+  }
+  # For numerical stability:
+  diag(Omega) = 0
+
+  # Compute the "random effects" matrix
+  Zk = matrix(0, nrow=m, ncol=num.knots)
+  for (k in 1:num.knots){
+    di = sqrt(rowSums((tau - matrix(rep(knots[k,], each = m), nrow=m))^2)) # di = 0; for(j in 1:d) di = di + (tau[,j] - knots[k,j])^2; di = sqrt(di)
+    if(d%%2 == 0){# Even dim:
+      Zk[,k] = di^(2*m.deriv - d)*log(di)
+    } else { # Odd dim:
+      Zk[,k] = di^(2*m.deriv - d)
+    }
+  }
+  Zk[is.nan(Zk)] = 0
+
+  # Natural constraints, if necessary:
+  if(num.knots > m - 2){Q2 = qr.Q(qr(X), complete=TRUE)[,-(1:2)]; Zk = Zk%*%Q2; Omega = crossprod(Q2, Omega)%*%Q2}
+
+  # SVD of penalty matrix
+  # So that the "random effects" have diagonal prior variance
+  svd.Omega = svd(Omega)
+  sqrt.Omega = t(svd.Omega$v %*%(t(svd.Omega$u)*sqrt(svd.Omega$d)))
+  Z = t(solve(sqrt.Omega,t(Zk)))
+
+  # Now combine the linear and nonlinear pieces to obtain the matrix of basis functions evaluated at the obs. points
+  Bmat = cbind(X, Z);
+
+  # The penalty matrix:
+  Omega = diag(c(rep(0, ncol(X)), rep(1, ncol(Z))))
+
+  if(orthonormalize){
+    # QR decomposition:
+    qrd = qr(Bmat, complete = TRUE);  R.t = t(qr.R(qrd));
+    # Update hte basis and the penalty matrix:
+    Bmat = qr.Q(qrd); Omega = forwardsolve(R.t, t(forwardsolve(R.t, Omega, upper.tri = FALSE)), upper.tri = FALSE)
+
+    BtB = diag(1, ncol(Bmat))
+  } else BtB = crossprod(Bmat)
+
+  # Return the matrix, the penalty, and the cross product (of the basis)
+  list(Bmat = Bmat, Omega = Omega, BtB = BtB)
+}
 #####################################################################################################
 #' Compute the Nelson-Siegel Curves
 #'
@@ -455,6 +599,48 @@ credBands = function(sampFuns, alpha = .05){
 
   # Finally, store the bands in a (m x 2) matrix of (lower, upper)
   cbind(Efx - Malpha*SDfx, Efx + Malpha*SDfx)
+}
+#####################################################################################################
+#' Compute Simultaneous Band Scores (SimBaS)
+#'
+#' Compute simultaneous band scores (SimBaS) from Meyer et al. (2015, Biometrics).
+#' SimBaS uses MC(MC) simulations of a function of interest to compute the minimum  
+#' alpha such that the joint credible bands at the alpha level do not include zero.
+#' This quantity is computed for each grid point (or observation point) in the domain
+#' of the function. 
+#'
+#' @param sampFuns \code{Nsims x m} matrix of \code{Nsims} MCMC samples and \code{m} points along the curve
+#'
+#' @return \code{m x 1} vector of simBaS
+#'
+#' @note The input needs not be curves: the simBaS may be computed
+#' for vectors to achieve a multiplicity adjustment.
+#' 
+#' @note The minimum of the returned value, \code{PsimBaS_t}, 
+#' over the domain \code{t} is the Global Bayesian P-Value (GBPV) for testing
+#' whether the function is zero everywhere.
+#'
+#' @export
+simBaS = function(sampFuns){
+  
+  N = nrow(sampFuns); m = ncol(sampFuns)
+  
+  # Compute pointwise mean and SD of f(x):
+  Efx = colMeans(sampFuns); SDfx = apply(sampFuns, 2, sd)
+  
+  # Compute standardized absolute deviation:
+  Standfx = abs(sampFuns - tcrossprod(rep(1, N), Efx))/tcrossprod(rep(1, N), SDfx)
+  
+  # And the maximum:
+  Maxfx = apply(Standfx, 1, max)
+  
+  # And now compute the SimBaS scores:
+  PsimBaS_t = rowMeans(sapply(Maxfx, function(x) abs(Efx)/SDfx <= x))
+  
+  # Alternatively, using a loop:
+  #PsimBaS_t = numeric(T); for(t in 1:m) PsimBaS_t[t] = mean((abs(Efx)/SDfx)[t] <= Maxfx)
+  
+  PsimBaS_t
 }
 #####################################################################################################
 #' Estimate the remaining time in the MCMC based on previous samples
@@ -525,6 +711,57 @@ getEffSize = function(postX) {
 #' abline(h=5)
 #' @export
 ergMean = function(x) {cumsum(x)/(1:length(x))}
+#----------------------------------------------------------------------------
+#' Compute a block diagonal matrix w/ constant blocks
+#'
+#' The function returns kronecker(diag(nrep), Amat), but is computed more efficiently
+#' @param Amat matrix to populate the diagaonal blocks
+#' @param nrep number of blocks on the diagonal
+#----------------------------------------------------------------------------
+blockDiag = function(Amat, nrep){
+  nr1 = nrow(Amat); nc1 = ncol(Amat)
+  fullMat = matrix(0, nr = nr1*nrep, nc = nc1*nrep)
+  rSeq = seq(1, nr1*nrep + nr1, by=nr1) # row sequence
+  cSeq = seq(1, nc1*nrep + nc1, by=nc1) # col sequence
+  for(i in 1:nrep) fullMat[rSeq[i]:(rSeq[i+1] - 1),  cSeq[i]:(cSeq[i+1] - 1)] = Amat
+
+  fullMat
+}
+#----------------------------------------------------------------------------
+#' Plot a curve given posterior samples
+#'
+#' Plot the posterior mean, simultaneous and pointwise 95\% credible bands
+#' for a curve given draws from the posterior distribution
+#' @param post_f \code{Ns x m} matrix of \code{Ns} posterior simulations
+#' of the curve at \code{m} points
+#' @param tau \code{m x 1} vector of observation points
+#' @param alpha confidence level for the bands
+#' @param include_joint logical; if TRUE, include joint bands (as well as pointwise)
+plot_curve = function(post_f, tau = NULL, alpha = 0.05, include_joint = TRUE){
+
+  Ns = nrow(post_f); m = ncol(post_f)
+
+  if(is.null(tau)) tau = 1:m
+
+  par(mfrow = c(1, 1), mai = c(1, 1, 1, 1))
+
+  # Pointwise intervals:
+  dcip = dcib = HPDinterval(as.mcmc(post_f), prob = 1 - alpha);
+
+  # Joint intervals, if necessary:
+  if(include_joint) dcib = credBands(post_f, alpha = alpha)
+
+  f_hat = colMeans(post_f)
+
+  plot(tau, f_hat, type = "n", ylim = range(dcib, dcip, na.rm = TRUE),
+       xlab = expression(tau), ylab = "", main = "Posterior Mean and Credible Bands",
+       cex.lab = 1.5, cex.main = 1.5, cex.axis = 1.5)
+  if(include_joint) polygon(c(tau, rev(tau)), c(dcib[, 2], rev(dcib[, 1])), col = "gray50",
+                            border = NA)
+  polygon(c(tau, rev(tau)), c(dcip[, 2], rev(dcip[, 1])), col = "grey",
+          border = NA)
+  lines(tau, f_hat, lwd = 8, col = "cyan")
+}
 #----------------------------------------------------------------------------
 #' Plot the factors
 #'

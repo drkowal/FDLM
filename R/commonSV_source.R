@@ -81,7 +81,6 @@ sampleCommonSV = function(omega, svParams, prior_phi = c(20,1.5)){
 #'
 #' @return \code{T x 1} matrix of simulated log-vols
 #' @import Matrix
-#' @importFrom BayesLogit draw.indicators
 #' @export
 sampleCommonLogVols = function(h_y, h_prev, h_mu, h_phi, h_sigma_eta){
 
@@ -110,7 +109,8 @@ sampleCommonLogVols = function(h_y, h_prev, h_mu, h_phi, h_sigma_eta){
   ystar = log(h_y^2 + yoffset)
 
   # Sample the mixture components
-  z = draw.indicators(res = ystar - matrix(rep(h_prev, m), nr = n), nmix = list(m = m_st, v = v_st2, p = q)) #z = sapply(ystar-ystar-matrix(rep(h_prev, m), nr = n), ncind, m_st, sqrt(v_st2), q)
+  #z = draw.indicators(res = ystar - matrix(rep(h_prev, m), nr = n), nmix = list(m = m_st, v = v_st2, p = q))
+  z = sapply(ystar-ystar-matrix(rep(h_prev, m), nr = n), ncind, m_st, sqrt(v_st2), q)
 
   # Subset mean and variances to the sampled mixture components; (n x p) matrices
   m_st_all = matrix(m_st[z], nr=n); v_st2_all = matrix(v_st2[z], nr=n)

@@ -160,6 +160,7 @@ sample_Wt = function(resBeta, Rinv = diag(1, K), rh0 = K, useDiagonal=FALSE){
 #' @param Psi \code{J x K} matrix of basis coefficients, where \code{J} is the number of
 #' basis functions and \code{K} is the number of factors
 #' @param Omega \code{J x J} penalty matrix; if NULL, assume it is diag(0, 0, 1,...,1)
+#' @param d dimension of \code{tau}; default is 1
 #' @param uniformPrior logical; when TRUE, use a uniform prior on prior standard deviations,
 #' \code{1/sqrt{lambda[k]}}; otherwise use independent Gamma(0.001, 0.001) prior for each \code{lambda[k]}
 #' @param orderLambdas logical; when TRUE, enforce the ordering constraint \code{lambda[1] > ... > lambda[K]}
@@ -168,13 +169,16 @@ sample_Wt = function(resBeta, Rinv = diag(1, K), rh0 = K, useDiagonal=FALSE){
 #' @return The \code{K}-dimensional vector of samoothing parameters, \code{lambda}.
 #####################################################################################################
 #' @export
-sample_lambda = function(lambda, Psi, Omega = NULL, uniformPrior = TRUE, orderLambdas = TRUE){
+sample_lambda = function(lambda, Psi, Omega = NULL, d = 1, uniformPrior = TRUE, orderLambdas = TRUE){
   J = nrow(Psi); K = ncol(Psi)
 
-  if(uniformPrior){shape0 = (J + 1)/2} else shape0 = (J - 2)/2 + 0.001; # for Gamma(0.001, 0.001) prior
+  if(uniformPrior){shape0 = (J - d + 1 + 1)/2} else shape0 = (J - d - 1)/2 + 0.001; # for Gamma(0.001, 0.001) prior
+  #if(uniformPrior){shape0 = (J + 1)/2} else shape0 = (J - 2)/2 + 0.001; # for Gamma(0.001, 0.001) prior
 
   for(k in 1:K){
-    if(is.null(Omega)){rate0 = crossprod(Psi[-(1:2),k])/2} else rate0 = crossprod(Psi[,k], Omega)%*%Psi[,k]/2
+    if(is.null(Omega)){rate0 = crossprod(Psi[-(1:(d+1)),k])/2} else rate0 = crossprod(Psi[,k], Omega)%*%Psi[,k]/2
+    #if(is.null(Omega)){rate0 = crossprod(Psi[-(1:2),k])/2} else rate0 = crossprod(Psi[,k], Omega)%*%Psi[,k]/2
+
     if(!uniformPrior) rate0 = rate0 + 0.001  # for Gamma(0.001, 0.001) prior
 
     # Lower and upper bounds, w/ ordering constraints (if specified):
@@ -184,6 +188,118 @@ sample_lambda = function(lambda, Psi, Omega = NULL, uniformPrior = TRUE, orderLa
     } else lambda[k] = rgamma(1, shape = shape0, rate = rate0)
   }
   lambda
+}
+#' Sample the autoregressive coefficients in an AR(1) Model
+#'
+#' Compue one draw of the autoregressive coefficients \code{phi} in an AR(1) model.
+#' The sampler also applies to a multivariate case with independent components.
+#'
+#' Sample the AR(1) coefficients \code{phi_j} using the model
+#'
+#' \code{y_tj = mu_j + phi_j(y_{t-1,j} - mu_j) + e_tj},
+#'
+#' with \code{e_tj ~ N(0, sigma[j]^2)}
+#'
+#' @param yt the \code{T x p} matrix of centered multivariate time series
+#' (i.e., the time series minus the unconditional means, \code{mu})
+#' @param phi_j the \code{p x 1} vector of previous AR(1) coefficients
+#' @param sigma_tj the \code{(T-1) x p} matrix or \code{p x 1} vector of error standard deviations
+#' @param prior_phi the parameters of the prior for the AR(1) coefficients \code{phi_j};
+#' either \code{NULL} for uniform on [-0.99,0.99] or a 2-dimensional vector of (shape1, shape2) for a Beta prior
+#' on \code{[(phi_j + 1)/2]}
+#'
+#' @return \code{p x 1} vector of sampled AR(1) coefficient(s)
+#'
+#' @note For the standard AR(1) case, \code{p = 1}. However, the function applies more
+#' generally for sampling \code{p > 1} independent AR(1) processes (jointly).
+#'
+#' @import truncdist
+#' @export
+sampleARphi = function(yt, phi_j, sigma_tj, prior_phi = NULL){
+
+  # Just in case:
+  yt = as.matrix(yt)
+
+  # Store dimensions locally:
+  T = nrow(yt); p = ncol(yt)
+
+  if(length(sigma_tj) == p) sigma_tj = matrix(rep(sigma_tj, each = T-1), nrow = T-1)
+
+  # Loop over the j=1:p
+  for(j in 1:p){
+
+    # Compute "regression" terms for dhs_phi_j:
+    y_ar = yt[-1,j]/sigma_tj[,j] # Standardized "response"
+    x_ar = yt[-T,j]/sigma_tj[,j] # Standardized "predictor"
+
+    # Using Beta distribution:
+    if(!is.null(prior_phi)){
+
+      # Check to make sure the prior params make sense
+      if(length(prior_phi) != 2) stop('prior_phi must be a numeric vector of length 2')
+
+      phi01 = (phi_j[j] + 1)/2 # ~ Beta(prior_phi[1], prior_phi[2])
+
+      # Slice sampler when using Beta prior:
+      phi01 = uni.slice(phi01, g = function(x){
+        -0.5*sum((y_ar - (2*x - 1)*x_ar)^2) +
+          dbeta(x, shape1 = prior_phi[1], shape2 = prior_phi[2], log = TRUE)
+      }, lower = 0.005, upper = 0.995)[1]
+
+      phi_j[j] = 2*phi01 - 1
+
+    } else {
+      # For phi_j ~ Unif(-0.99, 0.99), the posterior is truncated normal
+      phi_j[j] = rtrunc(n = 1, spec = 'norm',
+                        a = -0.99, b = 0.99,
+                        mean = sum(y_ar*x_ar)/sum(x_ar^2),
+                        sd = 1/sqrt(sum(x_ar^2)))
+    }
+  }
+  return(phi_j)
+}
+#' Sample the unconditional mean in an AR(1) Model
+#'
+#' Compue one draw of the unconditional mean \code{mu} in an AR(1) model assuming a
+#' Gaussian prior (with mean zero).
+#'
+#' Sample the unconditional mean \code{mu} using the model
+#'
+#' \code{y_tj = mu_j + phi_j(y_{t-1,j} - mu_j) + e_tj},
+#'
+#' with \code{e_tj ~ N(0, sigma[j]^2)} and prior \code{mu ~ N(0, 1/priorPrec[j])}
+#'
+#' @param yt the \code{T x p} matrix of multivariate time series
+#' @param phi_j the \code{p x 1} vector of AR(1) coefficients
+#' @param sigma_tj the \code{(T-1) x p} matrix or \code{p x 1} vector of error standard deviations
+#' @param priorPrec the \code{p x 1} vector of prior precisions;
+#' if \code{NULL}, use \code{rep(10^-6, p)}
+#'
+#' @return The \code{p x 1} matrix of unconditional means.
+#' @export
+sampleARmu = function(yt, phi_j, sigma_tj, priorPrec = NULL){
+
+  # Just in case:
+  yt = as.matrix(yt)
+
+  # Store dimensions locally:
+  T = nrow(yt); p = ncol(yt)
+
+  if(length(sigma_tj) == p) sigma_tj = matrix(rep(sigma_tj, each = T-1), nrow = T-1)
+
+  # Prior precision:
+  if(is.null(priorPrec)) priorPrec = rep(10^-6, p)
+
+  # Now, form the "y" and "x" terms in the (auto)regression
+  y_mu = (yt[-1,] - matrix(rep(phi_j, each = T-1), nrow = T-1)*yt[-T,])/sigma_tj
+  x_mu = matrix(rep(1 - phi_j, each = T-1), nrow = T-1)/sigma_tj
+
+  # Posterior SD and mean:
+  postSD = 1/sqrt(colSums(x_mu^2) + priorPrec)
+  postMean = (colSums(x_mu*y_mu))*postSD^2
+  mu = rnorm(n = p, mean = postMean, sd = postSD)
+
+  return(mu)
 }
 #' Sample the unconditional mean in a VAR
 #'
@@ -204,7 +320,7 @@ sample_lambda = function(lambda, Psi, Omega = NULL, uniformPrior = TRUE, orderLa
 #'
 #' @return The \code{p x 1} matrix of unconditional means.
 #' @export
-sampleARmu = function(yt, G, Sigma, priorPrec = NULL){
+sampleVARmu = function(yt, G, Sigma, priorPrec = NULL){
 
   # Store dimensions locally:
   T = nrow(yt); p = ncol(yt)
@@ -270,4 +386,43 @@ sampleVAR = function(ytc, Sigma, priorPrec = NULL, stationary = TRUE){
   }
 
   return(G)
+}
+#--------------------------------------------------------------
+#' Multiplicative Gamma Process (MGP) Sampler
+#'
+#' Sample the global parameters, delta.h, with tau.h = cumprod(delta.h), from
+#' the MGP prior for factor models
+#'
+#' @param theta.jh the \code{p x K} matrix with entries theta.jh ~ N(0, tau.h^-1), j=1:p, h=1:K
+#' @param delta.h the \code{K}-dimensional vector of previous delta.h values, tau.h[h] = prod(delta.h[1:h])
+#' @param a1 the prior parameter for factor 1: delta.h[1] ~ Gamma(a1, 1)
+#' @param a2 the prior parameter for factors 2:K: delta.h[h] ~ Gamma(a2, 1) for h = 2:K
+#' @return \code{delta.h}, the \code{K}-dimensional vector of multplicative components,
+#' where tau.h[h] = prod(delta.h[1:h])
+#'
+#' @note The default \code{a1 = 2} and \code{a2 = 3} appears to offer the best performance
+#' in Durante (2017).
+#' @export
+sampleMGP = function(theta.jh, delta.h, a1 = 2, a2 = 3){
+
+  # Just in case:
+  theta.jh = as.matrix(theta.jh)
+
+  # Store the dimensions locally
+  p = nrow(theta.jh); K = ncol(theta.jh)
+
+  # Sum over the (squared) replicates:
+  sum.theta.l = colSums(theta.jh^2)
+
+  # h = 1 case is separate:
+  tau.not.1 = cumprod(delta.h)/delta.h[1]
+  delta.h[1] = rgamma(n = 1, shape = a1 + p*K/2,
+                      rate = 1 + 1/2*sum(tau.not.1*sum.theta.l))
+  # h > 1:
+  if(K > 1){for(h in 2:K){
+    tau.not.h = cumprod(delta.h)/delta.h[h]
+    delta.h[h] = rgamma(n = 1, shape = a2 + p/2*(K - h + 1),
+                        rate = 1 + 1/2*sum(tau.not.h[h:K]*sum.theta.l[h:K]))
+  }}
+  delta.h #list(tau.h = cumprod(delta.h), delta.h = delta.h)
 }

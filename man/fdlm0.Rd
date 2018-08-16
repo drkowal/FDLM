@@ -67,7 +67,7 @@ data("US_Yields") # data("UK_Yields")
 Y = Y[which(dates > as.Date("2012-01-01")),];
 dates = dates[which(dates > as.Date("2012-01-01"))] # subset the dates for easy reference
 
-Center and scale for numerical purposes:
+# Center and scale for numerical purposes:
 Y = scale(Y)
 
 # Run the MCMC:

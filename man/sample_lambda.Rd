@@ -4,7 +4,7 @@
 \alias{sample_lambda}
 \title{Factor loading curve smoothing parameter sampler}
 \usage{
-sample_lambda(lambda, Psi, Omega = NULL, uniformPrior = TRUE,
+sample_lambda(lambda, Psi, Omega = NULL, d = 1, uniformPrior = TRUE,
   orderLambdas = TRUE)
 }
 \arguments{
@@ -15,6 +15,8 @@ from previous MCMC iteration}
 basis functions and \code{K} is the number of factors}
 
 \item{Omega}{\code{J x J} penalty matrix; if NULL, assume it is diag(0, 0, 1,...,1)}
+
+\item{d}{dimension of \code{tau}; default is 1}
 
 \item{uniformPrior}{logical; when TRUE, use a uniform prior on prior standard deviations,
 \code{1/sqrt{lambda[k]}}; otherwise use independent Gamma(0.001, 0.001) prior for each \code{lambda[k]}}

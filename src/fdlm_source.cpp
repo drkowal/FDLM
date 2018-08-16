@@ -79,6 +79,9 @@ arma::mat sampleFLC(arma::mat BtY, arma::mat Beta, arma::mat Psi, arma::mat BtB,
     psinorm = sqrt(psi_k.t()*BtB*psi_k);
 
     Psi.col(k) = psi_k/psinorm(0,0);
+
+    // Re-scale Beta as well:
+    // Beta.col(k) = Beta.col(k)*psinorm(0,0);
   }
   return Psi;
 }
@@ -155,6 +158,9 @@ arma::mat sampleFLC_orthog(arma::mat BtY, arma::mat Beta, arma::mat Psi,
     // Normalize:
     psinorm = sqrt(psi_k.t()*psi_k);
     Psi.col(k) = psi_k/psinorm(0,0);
+
+    // Re-scale Beta as well:
+    // Beta.col(k) = Beta.col(k)*psinorm(0,0);
   }
   return Psi;
 }
@@ -244,6 +250,9 @@ arma::mat sampleFLC_cons(arma::mat BtY, arma::mat Beta, arma::mat Psi, arma::mat
     psinorm = sqrt(psi_k.t()*BtB*psi_k);
 
     Psi.col(k) = psi_k/psinorm(0,0);
+
+    // Re-scale Beta as well:
+    // Beta.col(k) = Beta.col(k)*psinorm(0,0);
   }
   return Psi;
 }
@@ -324,6 +333,9 @@ arma::mat sampleFLC_cons_1(arma::mat BtY, arma::mat Beta, arma::mat Psi, arma::m
 
   Psi.col(0) = psi_k/psinorm(0,0);
 
+
+  // No need to re-scale Beta for K = 1 case
+
   return Psi;
 }
 //' Factor Loading Curve Sampling Algorithm for K=1
@@ -387,6 +399,8 @@ arma::mat sampleFLC_1(arma::mat BtY, arma::mat Beta, arma::mat Psi, arma::mat Bt
   psinorm = sqrt(psi_k.t()*BtB*psi_k);
 
   Psi.col(0) = psi_k/psinorm(0,0);
+
+  // No need to re-scale Beta for K = 1 case
 
   return Psi;
 }
